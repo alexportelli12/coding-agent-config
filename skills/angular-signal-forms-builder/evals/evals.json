@@ -1,0 +1,44 @@
+{
+  "skill_name": "angular-signal-forms-builder",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create an Angular component for editing a product. The product has name (string, required, min 3 chars), price (number, required, positive), category (enum: 'electronics', 'clothing', 'food'). Use the modern signal forms approach. The component should receive the initial product data from an input signal.",
+      "expected_output": "A TypeScript component and HTML template using form() from @angular/forms/signals, [formField] in template, linkedSignal if store/data sync is mentioned (here input signal), and a separate schema file for validation.",
+      "files": [],
+      "expectations": [
+        "Uses `form()` imported from `@angular/forms/signals`",
+        "Does NOT use `FormBuilder`, `FormGroup`, or `FormControl`",
+        "Template uses `[formField]` directive for binding",
+        "Validation is defined in a separate schema file or object",
+        "Component uses `linkedSignal` to create a mutable working copy of input data"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Refactor this legacy Angular form to use signal forms:\n\n```typescript\n@Component({...})\nexport class UserProfileComponent {\n  fb = inject(FormBuilder);\n  profileForm = this.fb.group({\n    firstName: ['', Validators.required],\n    lastName: [''],\n    email: ['', [Validators.required, Validators.email]]\n  });\n}\n```\n\n```html\n<form [formGroup]=\"profileForm\">\n  <input formControlName=\"firstName\" />\n  <input formControlName=\"lastName\" />\n  <input formControlName=\"email\" />\n</form>\n```\n\nConvert it completely to the signal-based paradigm.",
+      "expected_output": "Refactored component using form(), [formField], and a separate validation schema. No legacy form classes remain.",
+      "files": [],
+      "expectations": [
+        "Uses `form()` imported from `@angular/forms/signals`",
+        "Does NOT use `FormBuilder`, `FormGroup`, or `FormControl`",
+        "Template uses `[formField]` directive instead of `formControlName`",
+        "Legacy `[formGroup]` directive is removed from template",
+        "Validation schema is decoupled into a separate file or constant"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Build a type-safe Angular login form component with email and password fields. The form should be pre-filled with data coming from a global user store (read-only). Use signal forms and ensure the store state is not mutated directly.",
+      "expected_output": "A login form component using linkedSignal to sync with store data, form() for controls, [formField] in template, and schema-based validation.",
+      "files": [],
+      "expectations": [
+        "Uses `form()` imported from `@angular/forms/signals`",
+        "Uses `linkedSignal` to derive local mutable state from store",
+        "Does NOT mutate the store state directly",
+        "Template uses `[formField]` directive",
+        "Validation is schema-based and separate from component logic"
+      ]
+    }
+  ]
+}

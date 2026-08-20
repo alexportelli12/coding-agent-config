@@ -1,0 +1,23 @@
+{
+  "skill_name": "angular-signal-component-generator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Generate a standalone Angular component called UserCardComponent. It should take a user object with id, name, and email as a required input, and emit a 'select' event with the user id when clicked. Use signals, OnPush, and output the TypeScript and HTML.",
+      "expected_output": "A standalone Angular component using input.required(), output(), ChangeDetectionStrategy.OnPush, with a template using @if and event binding. No legacy decorators.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Scaffold a modern Angular pagination component. It takes currentPage and totalPages as inputs, maintains internal page state with signals, derives hasPrevious and hasNext via computed(), and emits pageChange events. Output TS and HTML only.",
+      "expected_output": "Component uses input(), signal() for internal state, computed() for derived booleans, output() for events. Template uses @if and @for with track. OnPush standalone. No effect() for business logic.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Refactor this into a modern signal-based Angular component: @Component({ selector: 'app-legacy' }) export class LegacyComponent { @Input() items: string[] = []; @Output() itemClick = new EventEmitter<string>(); @ViewChild('list') listEl: ElementRef; } Template uses *ngFor='let item of items' and *ngIf='items.length'. Give me the new TS and HTML.",
+      "expected_output": "Refactored component uses input.required() or input(), output(), viewChild(), OnPush, standalone, @for with track, @if. No legacy decorators or structural directives remain.",
+      "files": []
+    }
+  ]
+}

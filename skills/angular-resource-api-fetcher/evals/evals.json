@@ -1,0 +1,23 @@
+{
+  "skill_name": "angular-resource-api-fetcher",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Write an Angular standalone component named UserProfileComponent. It takes a required route parameter `userId` (as a signal input). It fetches user data from `/api/users/{userId}`. The template must show 'Loading...' while fetching, an error message on failure, and the user's name and email on success. Use the modern Resource API (httpResource) — do not inject HttpClient or call subscribe in the component.",
+      "expected_output": "TypeScript component using httpResource with reactive request lambda, and HTML template using resource signals (isLoading, error, value).",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "Write an Angular standalone component named ProductSearchComponent. It has a search input bound to a model signal. It fetches from `/api/products?search={query}`. If the query is empty or whitespace, do not fire the request. Show loading state, error state, and a results list in the template. Use the Resource API (httpResource) and built-in resource signals only.",
+      "expected_output": "TypeScript component using httpResource with guard returning undefined for empty query, plus HTML template using isLoading, error, and value signals.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Write a reusable Angular utility function `createProjectResource(projectId: Signal<string | null>)` that returns a resource fetching `/api/projects/{projectId}`. If projectId is null, return undefined from the request lambda so no request fires. Provide only the implementation.",
+      "expected_output": "A plain function using httpResource with reactive request lambda and undefined guard.",
+      "files": []
+    }
+  ]
+}
