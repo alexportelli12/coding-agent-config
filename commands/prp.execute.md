@@ -152,9 +152,10 @@ explicitly chooses to address them.
 
 ## Completion
 
-After implementation, final `npm run verify`, and any applicable rendered
-inspection, report completion to the user for product validation. Do not
-automatically delete the PRP.
+After implementation, final `npm run verify`, any applicable rendered
+inspection, and completion of all applicable independent judgement gates with
+no unresolved `high/blocker` or `medium` findings, report the implementation
+ready to the user for product validation. Do not automatically delete the PRP.
 
 Return a concise summary of the implementation, deterministic verification,
 rendered evidence when applicable, unresolved concerns, and the request for
