@@ -1,83 +1,100 @@
 ---
-description: Generate a PRP implementation plan from a feature description
+description: Generate a lean Product Requirement Prompt from a feature description
 agent: documentation
 ---
 
 # Generate PRP: $ARGUMENTS
 
-Generate a lean, actionable PRP (Product Requirements Prompt) for the described feature.
+Generate a lean **Product Requirement Prompt (PRP)** for the requested work. A
+PRP is a temporary specification contract: it defines what must be true when
+the work is finished, not how the implementing agent must build it.
 
-**Context:** Load `repo-context` to detect repository-wide defaults, architecture, tech stack, and available scripts. Treat its confidence/evidence as guidance: feature-local patterns take precedence over repository-wide defaults when they intentionally differ.
+## Preconditions
 
-## Step 1: Research
+Before researching the task, confirm from the repository's package manifests
+and workspace configuration that `npm run verify` is available from the
+repository root. This is the repository's canonical deterministic quality
+contract.
 
-| Action                                                                                                                |
-| --------------------------------------------------------------------------------------------------------------------- |
-| Run `repo-context` — note high-confidence conventions, mixed patterns, structure, and available scripts               |
-| Search the affected feature area for the closest analogous implementations and reusable components/services/modules   |
-| Prefer feature-local patterns over global conventions unless the local code is clearly legacy or being replaced       |
-| Check for existing PRP templates (e.g. `.ai/planning/templates/`) and use if found, otherwise generate inline         |
-| If `UX_PRINCIPLES.md` exists, read it and select only principles relevant to the requested change                      |
-| Identify only knowledge gaps that would materially change scope, UX, data design, integration, or acceptance criteria |
+If that contract does not exist, stop and tell the user that the repository is
+not ready for the PRP workflow because it does not expose `npm run verify`.
+Do not generate a PRP, add `verify`, or set up validation as part of this
+command.
 
-Do not duplicate the full `repo-context` report in the PRP. Capture only feature-specific findings needed for execution.
+## Investigation
 
-When `UX_PRINCIPLES.md` exists, translate applicable principles into concrete UX considerations and constraints for this change. Do not audit the product, surface unrelated UX issues, or expand scope. If the file does not exist, continue without it and do not block generation.
+Investigate enough to understand the requested outcome and resolve decisions
+without turning the result into an implementation manual:
 
-## Step 2: Clarify Only When Needed
+1. Load and run `repo-context` for a current, observational repository map.
+2. Inspect the affected feature or system, its closest relevant analogues,
+   existing architecture, and relevant tests or behavioural contracts.
+3. Read repository-specific instructions and any relevant product or UX
+   principles, including `UX_PRINCIPLES.md` when present.
+4. Use a specialist skill when its expertise materially improves the planning.
 
-Ask **zero questions when the requirements and repository evidence are sufficient**.
+Treat repository evidence and established product principles as the first
+source of answers. Ask the user only about genuine unresolved product
+behaviour, UX intent, business rules, meaningful architectural choices with
+product consequences, or important edge cases that cannot be inferred. Ask the
+fewest focused questions necessary; do not ask the user to choose ordinary
+implementation details.
 
-When clarification is genuinely required, use the question tool for the smallest number of focused questions needed (normally 1–3, maximum 5):
+Do not persist the repo-context report, generic repository context, framework
+tutorials, expected file lists, implementation anchors, coding steps, test
+technology, generic validation commands, or speculative abstractions.
 
-| Category        | Ask only when...                                                                        |
-| --------------- | --------------------------------------------------------------------------------------- |
-| **Scope**       | MVP/full scope or boundaries would change implementation                                |
-| **UX**          | User flow or interaction cannot be inferred from requirements/existing product patterns |
-| **Data**        | Schema, ownership, persistence, or API behavior is ambiguous                            |
-| **Integration** | Multiple materially different integration approaches exist                              |
-| **Edge Cases**  | Product behavior for an important failure/empty/loading state is undefined              |
+## PRP Contract
 
-Maximum 2 question rounds. Do not ask for information that can be discovered from the repository. For non-blocking uncertainty, document a reasonable assumption in the PRP instead of interrupting the user.
+Write the PRP to the repository's existing gitignored temporary PRP location,
+normally `.ai/planning/prp/{feature-name}.md`. PRPs are temporary, are not
+permanent documentation, and are manually discarded when the user decides the
+work is complete. Do not automatically delete them and do not create a new
+permanent planning location.
 
-## Step 3: Generate PRP
+Use judgement and omit sections that add no value:
 
-**Include:**
+```markdown
+# Goal
 
-- Goal and feature-specific success/acceptance criteria
-- Explicit decisions and assumptions established during clarification
-- Expected files/areas to create or modify, with paths where confidently known
-- **Implementation anchors:** precise paths + symbols/components/services that demonstrate the patterns to follow, with a short explanation of relevance
-- Small code snippets only when a repository pattern is unusual or ambiguous and a path/symbol reference is insufficient
-- Dependency-ordered implementation steps; avoid prescribing implementation details that the executing agent can safely derive from the codebase
-- Important edge cases and failure states
-- Relevant UX considerations and constraints derived from `UX_PRINCIPLES.md`, when present
-- Out-of-scope boundaries
-- Validation plan using only scripts/configuration that actually exist; distinguish targeted validation from final repository gates
+# Requirements
 
-**Exclude:**
+# Decisions
 
-- Full `repo-context` output
-- Generic framework patterns or coding standards dynamically discoverable at execution time
-- Large copied code snippets
-- Full code implementations
-- Speculative files or architecture presented as fact
+# Acceptance Criteria
 
-## Output
+## Behaviour
 
-Save to `.ai/planning/prp/{feature-name}.md` if the directory exists. Otherwise use an existing planning directory; if none exists, create `.ai/planning/prp/`.
+## Experience
 
-**Checklist:**
+# Constraints
 
-- [ ] Repository and affected feature area researched
-- [ ] Closest analogous implementations identified
-- [ ] Questions asked only where the answer materially affects implementation
-- [ ] Acceptance criteria are observable and feature-specific
-- [ ] Implementation anchors use precise paths/symbols instead of unnecessary copied code
-- [ ] Implementation ordered by dependency
-- [ ] Assumptions, edge cases, and out-of-scope boundaries documented
-- [ ] Relevant `UX_PRINCIPLES.md` guidance incorporated without expanding scope, when the file exists
-- [ ] Validation references only commands/scripts/configuration that exist
-- [ ] PRP contains no unnecessary repository-wide context duplication
+# Edge Cases
+```
 
-**Confidence:** Rate 1–10: can an execution agent complete this PRP in one pass without making product decisions? Briefly state the main reason confidence is not 10, if applicable.
+The content should follow these rules:
+
+- **Goal** states the intended outcome concisely without implementation
+  language.
+- **Requirements** captures product and engineering requirements that must
+  remain true.
+- **Decisions** records meaningful choices already established during
+  investigation or clarification, not ordinary executor choices.
+- **Acceptance Criteria / Behaviour** describes objectively observable,
+  deterministic outcomes. Include behaviours important enough to deserve
+  automated protection, without prescribing test technology or test level.
+- **Acceptance Criteria / Experience** captures important human- or
+  judgement-dependent qualities for user-facing work. Do not present these as
+  deterministic tests.
+- **Constraints** contains only real compatibility, scope, external-contract,
+  or established architectural constraints.
+- **Edge Cases** contains meaningful discovered or clarified cases, not a
+  speculative exhaustive list.
+
+Keep the contract short enough that an implementation agent can hold it as the
+source of task requirements while investigating implementation details itself.
+Do not add a confidence score or an implementation checklist unless the task
+has an unusual, concrete reason to need one.
+
+After writing the file, report its path and any unresolved ambiguity. Do not
+implement the requested feature.

@@ -1,115 +1,128 @@
 ---
-description: Execute a PRP implementation plan
+description: Execute a Product Requirement Prompt with repository verification
 agent: build
 ---
 
 # Execute PRP: $ARGUMENTS
 
-Implement the feature using the PRP file. Search for it in `.ai/planning/prp/`, `prp/`, or other planning directories.
+Implement the PRP identified by `$ARGUMENTS`. Find it in the repository's
+gitignored temporary PRP location, normally `.ai/planning/prp/`. Read it
+completely before making changes.
 
-**Context:** Load `repo-context` for current repository-wide defaults, architecture, tech stack, and available scripts. Re-read the affected feature area because local patterns may be more relevant than repository-wide majorities.
-
-## CRITICAL: NO COMMITS
-
-**NEVER commit changes.** The user will commit manually. Do not run `git add`, `git commit`, or other git commands that modify repository state.
-
-## Step 0: Establish Execution Context
+## Preflight: Green Before Work
 
 Before implementation:
 
-1. Read the PRP completely.
-2. Check for `UX_PRINCIPLES.md`; if present, read it as supporting guidance for implementation decisions the PRP leaves open.
-3. Load `repo-context`.
-4. Read the manifest/lock file(s) to determine package manager and available scripts.
-5. Inspect the PRP's implementation anchors and the closest analogous code in the affected feature area.
-6. Check repository-local skills/instructions/templates and follow any relevant ones.
+1. Load and run `repo-context` again for current, independent repository
+   evidence. Do not persist its report beside the PRP.
+2. Confirm that the repository exposes `npm run verify` from its root.
+3. Run `npm run verify` before changing code.
 
-Only run commands that actually exist or are directly supported by detected tooling/configuration. Never invent validation commands.
+If `npm run verify` does not exist, stop and report that the repository does
+not satisfy the PRP workflow contract. Do not add it as part of feature work.
+If the preflight verify fails, stop and report the failure. Do not begin
+implementation or attempt to classify failures as pre-existing.
 
-## Convention Precedence
+The implementation invariant is: the repository was green when PRP work
+began.
 
-Use this order when deciding how new code should look:
+## Implementation
 
-1. Explicit requirements in the PRP/user request
-2. Relevant repository-local instructions/skills
-3. Closest intentional pattern in the affected feature area
-4. High-confidence repository-wide conventions from `repo-context`
-5. Framework defaults only when the repository provides no stronger signal
+The PRP is the product and scope contract. Investigate the current repository,
+affected feature, closest analogues, local instructions, and relevant product
+or UX principles before deciding how to implement it. Use specialist skills or
+delegate focused work when their expertise materially helps; for example, use
+the consolidated Angular skill for meaningful Angular work and UI-design
+expertise for meaningful interface work.
 
-Do not copy an obviously legacy/deprecated local pattern merely because it is nearby. If signals conflict materially and the PRP does not resolve them, use the approach best supported by current repository evidence and mention the decision in the completion summary.
+The orchestrating agent owns current investigation, implementation
+orchestration, delegation, remediation, and final verification.
 
-## UX Decision Precedence
+Use TodoWrite for implementation-sized tasks. Keep the work within the PRP:
+resolve ordinary implementation choices from repository evidence, avoid
+unrelated refactors, and ask the user only when implementation reveals a
+material product or architectural ambiguity that the repository cannot answer.
 
-The PRP remains the primary implementation contract. For UX decisions it does not fully specify, use this order:
+### Behaviour Criteria
 
-1. Explicit PRP requirements
-2. UX constraints captured in the PRP
-3. `UX_PRINCIPLES.md`
-4. Existing project patterns
-5. Generic UX judgement
+Use the PRP's Behaviour acceptance criteria to identify important deterministic
+behaviour that deserves enduring automated protection. When a criterion is
+important, reasonably testable, and supported by the repository's existing
+infrastructure, add or update the appropriate proof at the level that best
+fits the behaviour: unit, component, integration, or E2E. This is
+behaviour-first, not mandatory test-first development. Do not prescribe a test
+technology or add low-value tests merely to increase coverage.
 
-Apply only principles relevant to decisions genuinely left open by the PRP. Do not use unrelated UX observations to redesign the feature, alter agreed behavior, audit adjacent experiences, or expand scope. If `UX_PRINCIPLES.md` is absent, continue without it.
+During implementation, delegated agents may run targeted checks useful for
+their work, such as a focused test, typecheck, or rendered check. They do not
+own final repository verification and must not redundantly run the full
+repository gauntlet.
 
-## Workflow
+### E2E Boundary
 
-| Step | Action                                                                                  | Key Points                                                           |
-| ---- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| 1    | **Plan:** Break PRP into dependency-ordered TodoWrite tasks                             | Keep tasks implementation-sized; do not expand PRP scope             |
-| 2    | **Implement:** Work through tasks, marking in_progress → completed                      | Reuse existing abstractions; avoid unrelated refactors               |
-| 3    | **Targeted Validate:** Run the narrowest relevant existing checks during implementation | Prefer affected tests/type/lint checks where supported               |
-| 4    | **Final Validate:** Run appropriate repository gates that exist                         | Build/lint/typecheck; run relevant existing tests whenever practical |
-| 5    | **Docs/Exports:** Update only directly affected existing docs/barrels/registries        | Do not create documentation churn                                    |
-| 6    | **Verify:** Re-read PRP and diff; check every acceptance criterion and scope boundary   | Ensure no requirement was missed and no accidental scope was added   |
+E2E is risk-triggered, not universal. Use it only when an important criterion
+crosses system boundaries that cheaper checks cannot meaningfully prove. A
+user-facing feature does not automatically require E2E.
 
-## Tests
+If a criterion genuinely requires E2E proof and the repository has no suitable
+E2E infrastructure, stop and report the verification gap. Do not introduce
+Playwright, Cypress, or another E2E framework as incidental feature work.
 
-Separate **running tests** from **writing tests**:
+## Final Verification
 
-- Run relevant existing tests whenever practical, even when the PRP does not require new tests.
-- Create or update tests when the PRP/user requires them, repository policy requires them, or the change introduces meaningful behavior that existing project practice expects to be covered.
-- Do not add low-value tests solely to increase test count.
-- Do not rewrite unrelated tests.
+When implementation is settled, use the repository's intentional auto-fix
+mechanism first if one exists and is useful. Do not invent a universal
+auto-fix command.
 
-## Validation
+Then run:
 
-Determine the package manager from repository evidence (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lockb`/`bun.lock`, workspace config, etc.).
+```bash
+npm run verify
+```
 
-Run only checks supported by the repository. Typical examples, **only when present**, are build, lint, typecheck, unit tests, and relevant e2e tests.
+This is the authoritative final deterministic gate, owned by this orchestrating
+agent. A failure means the implementation is incomplete: investigate and
+remediate implementation-caused failures, then rerun `npm run verify`. Respect
+`AGENTS.md` and repository safeguards; do not weaken them to make verification
+pass. Any code remediation requires another full `npm run verify` before
+completion.
 
-Validate progressively:
+Re-read the PRP and inspect the final diff to confirm the acceptance criteria
+and scope are covered.
 
-1. Narrow/affected checks while implementing, when the tooling supports them.
-2. Appropriate full repository gates once near completion.
+## Rendered UI Inspection
 
-### Existing Failures
+For meaningful user-facing work, after deterministic verification perform a
+separate proportional browser inspection using available tooling. Check the
+affected route or state, meaningful interactions, representative desktop and
+mobile layouts, runtime or console errors, obvious responsive failures, and
+relevant accessibility behaviour as appropriate.
 
-When validation fails, determine whether the failure was introduced by this implementation.
+This is rendered evidence and judgement, not repository E2E or visual
+regression infrastructure. Do not add committed screenshots or pixel
+baselines. Do not claim subjective hierarchy, coherence, usability, or product
+intent as deterministic verification.
 
-- Fix failures caused by your changes at the source.
-- Never disable lint/type rules, weaken tests, or introduce `any`/equivalent escapes merely to make validation pass.
-- Do **not** expand scope to repair unrelated pre-existing failures.
-- If a failure appears pre-existing or unrelated, preserve the evidence and report it clearly in the final summary.
+## Review Handoff
 
-## Scope Control
+Leave an obvious post-verify review stage for future independent engineering
+and UI/UX judgement gates. Those reviewer agents are not available in this
+phase: do not reference or invoke nonexistent identifiers, and do not recreate
+independent review as self-review by the implementing agent.
 
-The PRP is the implementation contract. Do not opportunistically refactor unrelated code, upgrade dependencies, redesign adjacent features, or fix unrelated defects unless required to satisfy the PRP.
+If a missed problem reveals a workflow protection gap, report the likely layer
+that should eventually own it, such as an executable specification, tooling,
+skill, rendered inspection, or independent review. Do not redesign the global
+workflow during PRP execution. Future reviewer findings should be investigated
+and resolved by the orchestrator rather than treated as unquestionable
+commands.
 
-If implementation reveals that a PRP assumption is wrong:
+## Completion
 
-- adapt when the repository makes the intended outcome unambiguous and the change remains within scope;
-- otherwise stop before making a product/architecture decision that materially changes the agreed behavior and ask for clarification.
+After implementation, final `npm run verify`, and any applicable rendered
+inspection, report completion to the user for product validation. Do not
+automatically delete the PRP.
 
-## Complete
-
-Before finishing:
-
-- [ ] Every PRP acceptance criterion verified
-- [ ] All TodoWrite tasks completed
-- [ ] Diff reviewed for accidental/unrelated changes
-- [ ] Relevant existing tests run where practical
-- [ ] Appropriate available validation gates passed, or unrelated failures documented
-- [ ] Required exports/docs/registrations updated
-- [ ] No PRP scope silently dropped or expanded
-- [ ] **NO commits made**
-
-Return a concise summary of what changed, validation performed/results, and any assumptions or pre-existing issues the user should know about.
+Return a concise summary of the implementation, deterministic verification,
+rendered evidence when applicable, unresolved concerns, and the request for
+human product validation.
