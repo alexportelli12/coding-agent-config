@@ -7,38 +7,28 @@ description: Write and maintain Playwright UI tests with resilient selectors, re
 
 ## Overview
 
-Create reliable, readable, and maintainable Playwright UI tests with stable selectors, reusable flows, and flake-resistant assertions.
+Create reliable, readable, and maintainable Playwright UI tests with stable
+selectors, reusable flows, and flake-resistant assertions. Follow the active
+repository's configured test-id attribute and selector conventions.
 
 ## Core Principles
 
 - **Arrange, Act, Assert**: separate setup, interactions, and verification.
-- **Selectors use `data-auid`**: add static `data-auid` attributes in templates only; never add or mutate them in TypeScript.
+- **Selectors use the repository convention**: add stable test-id attributes in
+  templates only when the repository uses them; never add or mutate them in
+  TypeScript.
 - **Reuse repeated steps**: extract common flows into helpers or fixtures to avoid duplication.
 
 ## Locator Strategy
 
-1. Configure Playwright to use `data-auid` for test ids.
-2. Prefer `getByTestId()` with stable `data-auid` values.
-3. Use semantic locators only when no `data-auid` exists.
+1. Use the repository's configured test-id attribute when one exists.
+2. Prefer `getByTestId()` with stable values when that convention is available.
+3. Use semantic locators when no test-id convention exists or when semantics are
+   the more stable contract.
 4. Avoid CSS/XPath unless there is no other option.
 
 ```ts
-// playwright.config.ts
-import { defineConfig } from "@playwright/test";
-
-export default defineConfig({
-  use: {
-    testIdAttribute: "data-auid",
-  },
-});
-```
-
-```html
-<button data-auid="checkout-submit">Submit order</button>
-```
-
-```ts
-await page.getByTestId("checkout-submit").click();
+await page.getByRole("button", { name: "Submit order" }).click();
 ```
 
 **Naming guidance:** use unique, descriptive, stable names (feature + element + intent). Avoid dynamic values, index-based ids, or styling references.

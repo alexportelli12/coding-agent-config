@@ -5,3 +5,4 @@ bun.lock
 .ruff_cache
 package-lock.json
 skills-lock.json
+.ai/planning/prp/
