@@ -38,10 +38,10 @@ expertise for meaningful interface work.
 The orchestrating agent owns current investigation, implementation
 orchestration, delegation, remediation, and final verification.
 
-Use TodoWrite for implementation-sized tasks. Keep the work within the PRP:
-resolve ordinary implementation choices from repository evidence, avoid
-unrelated refactors, and ask the user only when implementation reveals a
-material product or architectural ambiguity that the repository cannot answer.
+Keep the work within the PRP: resolve ordinary implementation choices from
+repository evidence, avoid unrelated refactors, and ask the user only when
+implementation reveals a material product or architectural ambiguity that the
+repository cannot answer.
 
 ### Behaviour Criteria
 
@@ -102,20 +102,6 @@ This is rendered evidence and judgement, not repository E2E or visual
 regression infrastructure. Do not add committed screenshots or pixel
 baselines. Do not claim subjective hierarchy, coherence, usability, or product
 intent as deterministic verification.
-
-## Review Handoff
-
-Leave an obvious post-verify review stage for future independent engineering
-and UI/UX judgement gates. Those reviewer agents are not available in this
-phase: do not reference or invoke nonexistent identifiers, and do not recreate
-independent review as self-review by the implementing agent.
-
-If a missed problem reveals a workflow protection gap, report the likely layer
-that should eventually own it, such as an executable specification, tooling,
-skill, rendered inspection, or independent review. Do not redesign the global
-workflow during PRP execution. Future reviewer findings should be investigated
-and resolved by the orchestrator rather than treated as unquestionable
-commands.
 
 ## Completion
 
