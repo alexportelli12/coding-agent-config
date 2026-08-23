@@ -63,21 +63,17 @@ The report is written to stdout. In an OpenCode session, use relevant findings a
 
 ## How to read the conventions table
 
-Each convention pair is scored to communicate the strength of the evidence:
+Each convention pair reports observed usage and the strength of its evidence:
 
-- **strong** — multiple eligible files use one approach with little competing usage; treat it as a likely default after local verification.
-- **mixed** — both approaches are established; match the affected feature and closest analogue.
-- **limited** — there is not enough evidence to infer a repository convention.
+- **strong** — multiple eligible files use one approach with little competing
+  usage;
+- **mixed** — both approaches are established, or files contain both;
+- **limited** — there is not enough evidence to infer a repository-wide pattern.
 
-| Report says | Do this in new code |
-|-------------|---------------------|
-| DI: `inject()` strong | Prefer `inject()` unless the local feature intentionally differs |
-| I/O: `input()/output()` strong | Prefer signal-based I/O after checking nearby components |
-| State: Signals dominant | Inspect where Signals are used and prefer the local state pattern |
-| State: RxJS subjects dominant | Inspect their role; do not infer that all state should use subjects |
-| Styling: Less dominant | Prefer `.less` files where the affected project uses them |
-| Templates: External strong | Prefer `templateUrl` after checking nearby components |
-| Selector prefix: `tf-` | Reuse the prefix after confirming it in the affected Angular project |
+These are repository-wide observations, not architecture rules. Inspect the
+affected feature and closest analogue before deciding. An intentional local
+pattern may override a broader majority, and missing syntax does not prove the
+alternative is absent.
 
 ## Limitations
 
