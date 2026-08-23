@@ -1,6 +1,6 @@
 ---
 name: ui-designer
-description: Practical UI design reasoning for creating, implementing, improving, refactoring, or reviewing application interfaces and flows. Use whenever UI work requires decisions about usability, hierarchy, layout, spacing, colour, typography, copy, actions, forms, accessibility, responsive behaviour, interaction states, or rendered visual validation, even when the user only asks to "make this UI better" or implement a product requirement. Apply alongside framework-specific skills. Do not use for defining product-level UX principles or for purely aesthetic art direction without an interface task.
+description: Practical UI design reasoning for creating, implementing, improving, or refactoring application interfaces and flows. Use whenever UI implementation requires decisions about usability, hierarchy, layout, spacing, colour, typography, copy, actions, forms, accessibility, responsive behaviour, interaction states, or rendered validation. Apply alongside framework-specific skills. Do not use for defining product-level UX principles or for purely aesthetic art direction without an interface task.
 ---
 
 # UI Designer
@@ -61,13 +61,17 @@ Do not turn every UI task into a redesign. Small, low-risk consistency improveme
 - For type, readability, interface language, links, or messages, read [references/typography-and-copy.md](references/typography-and-copy.md).
 - For action hierarchy, labels, targets, disabled controls, or destructive actions, read [references/buttons-and-actions.md](references/buttons-and-actions.md).
 - For any form design or validation task, read [references/forms.md](references/forms.md) and use the relevant framework-specific form skill when available.
-- For UI review or final visual validation, read [references/ui-review.md](references/ui-review.md).
+- The independent `ui-reviewer` owns final UI judgement; it may read [references/ui-review.md](references/ui-review.md) for review-specific guidance.
 
 Do not load every reference by default.
 
 ## Validate The Rendered Result
 
-After implementation, inspect the actual rendered interface at representative viewport sizes when tooling permits. Use browser interaction and screenshots where practical; source code and CSS values alone cannot establish visual quality.
+During implementation, inspect the actual rendered interface at representative
+viewport sizes when tooling permits. Use browser interaction and screenshots
+where practical; source code and CSS values alone cannot establish visual
+quality. This targeted inspection supports implementation and does not replace
+the orchestrator's final verification or the independent UI review.
 
 Check the primary journey first, then relevant states and realistic content. Confirm that:
 
@@ -79,17 +83,6 @@ Check the primary journey first, then relevant states and realistic content. Con
 - long, missing, wrapping, translated, and dynamic content do not break the task;
 - copy is clear, contrast is sufficient, and targets are comfortably actionable.
 
-Run available tests, linting, type checks, builds, and automated accessibility checks where relevant, but do not treat automation as a substitute for visual inspection.
-
-## Explain Findings Precisely
-
-When reviewing UI, report meaningful issues rather than aesthetic preferences. Rank severity by user impact. A finding should contain:
-
-1. **Observation:** what is happening
-2. **Impact:** why it matters to the user
-3. **Principle:** the design concern involved
-4. **Smallest fix:** the least invasive effective correction
-
-Prefer "The primary and secondary actions have equal visual weight, so the next step is unclear" over "The buttons feel off."
-
-A review can correctly conclude that no meaningful UI changes are needed. Read [references/ui-review.md](references/ui-review.md) for the operational review process and safety-net checklist.
+Run targeted tests, linting, type checks, builds, or automated accessibility
+checks where relevant, but do not treat automation as a substitute for visual
+inspection or run the full repository validation gauntlet as delegated work.

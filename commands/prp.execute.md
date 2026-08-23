@@ -103,6 +103,53 @@ regression infrastructure. Do not add committed screenshots or pixel
 baselines. Do not claim subjective hierarchy, coherence, usability, or product
 intent as deterministic verification.
 
+## Independent Judgement
+
+After successful final deterministic verification, add independent judgement
+only when it materially improves confidence:
+
+- For substantial work with meaningful behavioural, architectural,
+  integration, state-management, security, or maintainability consequence,
+  invoke `engineering-reviewer`.
+- For meaningful user-facing work, perform the rendered/browser inspection
+  above first, then invoke `ui-reviewer` with fresh review context.
+
+Small or mechanical PRPs do not need engineering review merely because the
+agent exists. Do not invoke UI review for changes without meaningful
+user-facing impact.
+
+Reviewers receive only the PRP, fresh repository evidence, relevant
+implementation context, final diff, applicable rendered evidence, and the
+fact that `npm run verify` passed. Do not send implementation transcripts,
+reasoning, self-review, or explanations defending choices. Reviewers judge;
+they do not implement. Never select a reviewer to fix its own findings.
+
+## Review Remediation
+
+Investigate every finding with repository evidence. A finding may be resolved
+by a bounded fix or by establishing that it does not apply. Do not blindly
+accept subjective or out-of-scope findings.
+
+Use this severity model:
+
+- `high/blocker`: must be resolved;
+- `medium`: must be resolved;
+- `low`: report, but do not automatically churn code.
+
+For a valid high/blocker or medium finding, determine the fix and delegate to
+an implementation specialist only when specialist expertise materially helps.
+Never delegate it to the reviewer that raised it. If code changes, run
+`npm run verify` again before further judgement. Rerun only affected gates:
+
+- engineering remediation: engineering review again;
+- UI remediation: rendered inspection and UI review again;
+- cross-cutting remediation: rerun both when both are materially affected.
+
+Allow at most two remediation passes per judgement gate. If meaningful
+high/blocker or medium findings remain after two passes, stop and involve the
+user. Low findings do not consume a pass unless the orchestrator or user
+explicitly chooses to address them.
+
 ## Completion
 
 After implementation, final `npm run verify`, and any applicable rendered
