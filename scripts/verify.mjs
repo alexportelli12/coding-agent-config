@@ -5,10 +5,11 @@ import { constants as osConstants } from "node:os";
 import { pathToFileURL } from "node:url";
 
 const SIGNAL_EXIT_OFFSET = 128;
+const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
 
 export function parseChecks(args) {
   if (args.length === 0) {
-    throw new Error("at least one --check <name> <command> is required");
+    throw new Error("at least one --check <name> <npm-script> is required");
   }
 
   const checks = [];
@@ -18,12 +19,12 @@ export function parseChecks(args) {
     }
 
     const name = args[index + 1];
-    const command = args[index + 2];
-    if (!name || !command) {
-      throw new Error("each --check must include a name and command");
+    const script = args[index + 2];
+    if (!name || !script) {
+      throw new Error("each --check must include a name and npm script");
     }
 
-    checks.push({ name, command });
+    checks.push({ name, script });
   }
 
   return checks;
@@ -38,10 +39,9 @@ function executeCheck(check, options, setActiveChild) {
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const child = spawn(check.command, {
+    const child = spawn(npmExecutable, ["run", check.script], {
       cwd: options.cwd,
       env: options.env,
-      shell: true,
       stdio: ["inherit", "pipe", "pipe"],
     });
     setActiveChild(child);
@@ -82,7 +82,7 @@ function reportFailure(check, result, passed, total) {
   process.stderr.write(`✗ ${check.name}\n\n`);
   process.stderr.write(`VERIFY FAILED - ${passed}/${total} checks successful\n\n`);
   process.stderr.write(`Failed check: ${check.name}\n`);
-  process.stderr.write(`Command: ${check.command}\n`);
+  process.stderr.write(`Command: ${npmExecutable} run ${check.script}\n`);
 
   if (result.signal) {
     process.stderr.write(`Signal: ${result.signal}\n`);
@@ -159,7 +159,7 @@ export async function main(args = process.argv.slice(2)) {
     process.exitCode = result.exitCode;
   } catch (error) {
     process.stderr.write(`Verification runner error: ${error.message}\n`);
-    process.stderr.write("Usage: verify-runner --check <name> <command> [...]\n");
+    process.stderr.write("Usage: verify-runner --check <name> <npm-script> [...]\n");
     process.exitCode = 2;
   }
 }

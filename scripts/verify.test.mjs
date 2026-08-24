@@ -9,19 +9,8 @@ import { runChecks } from "./verify.mjs";
 
 const runner = fileURLToPath(new URL("./verify.mjs", import.meta.url));
 
-function shellQuote(value) {
-  if (process.platform === "win32") {
-    return `"${value.replaceAll('"', '\\"')}"`;
-  }
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-function commandFor(script, ...args) {
-  return [process.execPath, script, ...args].map(shellQuote).join(" ");
-}
-
 async function runRunner(root, checks) {
-  const args = checks.flatMap(({ name, command }) => ["--check", name, command]);
+  const args = checks.flatMap(({ name, script }) => ["--check", name, script]);
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [runner, ...args], {
       cwd: root,
@@ -41,11 +30,9 @@ async function createFixture(t) {
   const fixture = path.join(root, "fixture.cjs");
   await writeFile(fixture, `
 const fs = require("node:fs");
-const [mode, value, marker] = process.argv.slice(2);
-if (marker) fs.appendFileSync(marker, value + "\\n");
-if (mode === "expect" && value !== "value with spaces") {
-  process.stderr.write("argument was split\\n");
-  process.exitCode = 8;
+const [mode, value] = process.argv.slice(2);
+if (mode === "mark") {
+  fs.writeFileSync("later-check-ran", value);
 } else if (mode === "fail") {
   process.stdout.write("failure stdout\\n");
   process.stderr.write("failure stderr\\n");
@@ -55,14 +42,27 @@ if (mode === "expect" && value !== "value with spaces") {
   process.stderr.write("success stderr " + value + "\\n");
 }
 `);
-  return { root, fixture };
+  await writeFile(
+    path.join(root, "package.json"),
+    JSON.stringify({
+      private: true,
+      scripts: {
+        format: "node fixture.cjs success format",
+        lint: "node fixture.cjs fail lint",
+        test: "node fixture.cjs success test",
+        "later-check": "node fixture.cjs mark later-check",
+        "argument-check": "node fixture.cjs success argument",
+      },
+    }),
+  );
+  return { root };
 }
 
 test("runs every check sequentially and suppresses successful command output", async (t) => {
-  const { root, fixture } = await createFixture(t);
+  const { root } = await createFixture(t);
   const result = await runRunner(root, [
-    { name: "format", command: commandFor(fixture, "success", "one") },
-    { name: "test", command: commandFor(fixture, "success", "two") },
+    { name: "format", script: "format" },
+    { name: "test", script: "test" },
   ]);
 
   assert.equal(result.code, 0);
@@ -73,29 +73,28 @@ test("runs every check sequentially and suppresses successful command output", a
 });
 
 test("exposes failed diagnostics, preserves the exit code, and fails fast", async (t) => {
-  const { root, fixture } = await createFixture(t);
-  const marker = path.join(root, "later-check-ran");
+  const { root } = await createFixture(t);
   const result = await runRunner(root, [
-    { name: "format", command: commandFor(fixture, "success", "format") },
-    { name: "lint", command: commandFor(fixture, "fail", "lint") },
-    { name: "test", command: commandFor(fixture, "success", "test", marker) },
+    { name: "format", script: "format" },
+    { name: "lint", script: "lint" },
+    { name: "test", script: "later-check" },
   ]);
 
   assert.equal(result.code, 7);
   assert.match(result.stderr, /Failed check: lint/);
-  assert.match(result.stderr, /Command: /);
+  assert.match(result.stderr, /Command: npm run lint/);
   assert.match(result.stderr, /Exit code: 7/);
   assert.match(result.stderr, /failure stdout/);
   assert.match(result.stderr, /failure stderr/);
   assert.doesNotMatch(result.stdout + result.stderr, /success stdout format/);
-  assert.doesNotMatch(result.stdout + result.stderr, /success stdout test/);
-  await assert.rejects(() => access(marker));
+  assert.doesNotMatch(result.stdout + result.stderr, /later-check/);
+  await assert.rejects(() => access(path.join(root, "later-check-ran")));
 });
 
-test("passes command arguments containing spaces as one command string", async (t) => {
-  const { root, fixture } = await createFixture(t);
+test("executes a repository-owned npm script by name", async (t) => {
+  const { root } = await createFixture(t);
   const result = await runRunner(root, [
-    { name: "argument check", command: commandFor(fixture, "expect", "value with spaces") },
+    { name: "argument check", script: "argument-check" },
   ]);
 
   assert.equal(result.code, 0);
@@ -115,7 +114,7 @@ test("reports process-spawn errors without throwing", async (t) => {
   let result;
   try {
     result = await runChecks(
-      [{ name: "missing cwd", command: "node -e noop" }],
+      [{ name: "missing cwd", script: "missing" }],
       { cwd: path.join(root, "missing") },
     );
   } finally {

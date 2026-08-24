@@ -117,23 +117,10 @@ baseline before implementation and a green final result afterward. Do not
 duplicate repository-specific checks in global prose or add project tooling
 from this configuration.
 
-Shared execution tooling may own how repository-selected checks run and report,
-but it must not select the checks. In this configuration, OpenCode's global
-shell environment exposes `scripts/verify-runner` on `PATH`, so a repository can
-keep its policy in its own manifest, for example:
-
-```json
-"verify": "verify-runner --check format \"npm run format:check\" --check lint \"npm run lint\" --check test \"npm test\""
-```
-
-The runner suppresses captured output for successful checks and preserves it for
-failures. This output policy belongs to deterministic tooling, not to agent
-instructions. `npm run verify` remains the only workflow gate agents invoke.
-Each `--check` receives one name and one command string; repository manifests
-should quote command arguments when needed so the runner receives them intact.
-Repositories used outside this OpenCode environment need an equivalent
-`PATH` setup or an explicit local adapter; committed manifests should not point
-at a user's `~/.config/opencode` path.
+Shared deterministic tooling may suppress captured output for successful checks
+while preserving diagnostics for failures. This reporting policy belongs to the
+tooling, not to agent instructions. `npm run verify` remains the only workflow
+gate agents invoke.
 
 Metrics such as CRAP score and duplication are bounded signals, not global
 ideology. Prefer scoped or differential enforcement where practical, calibrate
