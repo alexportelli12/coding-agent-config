@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+
+import("./verify.mjs").then(({ main }) => main()).catch((error) => {
+  process.stderr.write(`Verification runner error: ${error.message}\n`);
+  process.exitCode = 1;
+});
