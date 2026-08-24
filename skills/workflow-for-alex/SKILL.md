@@ -117,6 +117,11 @@ baseline before implementation and a green final result afterward. Do not
 duplicate repository-specific checks in global prose or add project tooling
 from this configuration.
 
+Shared deterministic tooling may suppress captured output for successful checks
+while preserving diagnostics for failures. This reporting policy belongs to the
+tooling, not to agent instructions. `npm run verify` remains the only workflow
+gate agents invoke.
+
 Metrics such as CRAP score and duplication are bounded signals, not global
 ideology. Prefer scoped or differential enforcement where practical, calibrate
 thresholds against real repositories, and do not make legacy code block

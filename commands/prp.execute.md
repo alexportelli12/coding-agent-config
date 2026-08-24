@@ -81,7 +81,10 @@ npm run verify
 ```
 
 This is the authoritative final deterministic gate, owned by this orchestrating
-agent. A failure means the implementation is incomplete: investigate and
+agent. When the repository uses shared verification execution tooling, successful
+check output should remain low-noise and failure diagnostics should remain
+available to the agent; deterministic tooling owns that reporting policy. A
+failure means the implementation is incomplete: investigate and
 remediate implementation-caused failures, then rerun `npm run verify`. Respect
 `AGENTS.md` and repository safeguards; do not weaken them to make verification
 pass. Any code remediation requires another full `npm run verify` before
