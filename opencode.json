@@ -18,6 +18,7 @@
         "@playwright/mcp@latest",
         "--headless",
         "--isolated",
+        "--executable-path=/usr/bin/chromium",
         "--output-dir=/tmp/opencode-playwright",
         "--output-max-size=5242880"
       ],
