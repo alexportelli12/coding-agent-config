@@ -1,195 +1,184 @@
 # coding-agent-config
 
-Global OpenCode configuration for Alex's coding-agent workflow. It is a small
-orchestration layer for repository-first software work: agents investigate the
-repository that owns the code, keep changes bounded, use deterministic checks
-where possible, and reserve judgement calls for independent reviewers and the
-human product owner.
+This is the configuration I use to make coding agents more reliable across my projects.
 
-This repository does not define an application's architecture or a consuming
-repository's validation commands. The active repository remains the source of
-truth for its code, patterns, product behavior, and `npm run verify`
-implementation.
+The basic idea is pretty simple: **I don't want to rely on writing the perfect prompt every time I ask an agent to work on a codebase.**
 
-## Workflow
+Instead, I want the workflow around the agent to do a lot of the heavy lifting.
 
-The explicit PRP path is:
+This repo is my attempt at building that workflow.
+
+It gives [OpenCode](https://opencode.ai/) a shared set of commands, skills, agents and verification tools that I can use across different repositories. The application repo still owns its architecture, conventions and quality checks — this config provides the workflow around them.
+
+## What problem am I trying to solve?
+
+Coding agents are very capable, but giving one a task and hoping for the best can still be pretty hit or miss.
+
+I've found that the quality improves significantly when the agent is encouraged to:
+
+* understand the repository before changing it;
+* turn larger tasks into a clear requirements contract;
+* start from a known-good baseline;
+* use deterministic tooling to catch things machines are good at catching;
+* actually inspect UI changes rather than assuming they look right;
+* get a fresh pair of eyes on changes where judgement matters; and
+* leave the final product decision to me.
+
+The goal isn't to make the agent follow a huge rulebook.
+
+It's almost the opposite.
+
+I want **less prompting, less repeated context and fewer instructions that should really be enforced by tooling**.
+
+## The workflow
+
+At a high level, feature work looks something like this:
 
 ```text
-request
-  -> investigate repository and affected feature
-  -> generate a temporary PRP when a task needs a requirements contract
-  -> execute with a green verification baseline
-  -> implement within scope and add important behavioral proof
-  -> run the repository's npm run verify
-  -> inspect the rendered UI when the change is meaningfully user-facing
-  -> obtain applicable independent engineering and/or UI judgement
-  -> remediate bounded findings and re-verify
-  -> human product validation
+Understand the task
+        ↓
+Investigate the repository
+        ↓
+Define what "done" means
+        ↓
+Verify the repo is healthy
+        ↓
+Implement
+        ↓
+Run deterministic checks
+        ↓
+Inspect the actual result
+        ↓
+Independent review where useful
+        ↓
+I validate the product
 ```
 
-The orchestrating agent owns investigation, implementation, delegation,
-remediation, and final deterministic verification. Specialists run targeted
-checks useful to their work; they do not duplicate the repository's full
-verification gate. Small or mechanical work does not automatically require a
-PRP or an independent review.
+Not every change needs every step.
 
-### PRPs
+A tiny mechanical change shouldn't require a requirements document and multiple reviewers. A substantial feature probably should.
 
-PRPs (Product Requirement Prompts) are temporary task contracts, not permanent
-documentation or implementation plans. Use [`/prp.generate`](commands/prp.generate.md)
-when a feature benefits from explicit investigation, decisions, and acceptance
-criteria. The command requires the target repository to expose `npm run verify`,
-uses [`repo-context`](skills/repo-context/SKILL.md), and writes the PRP to the
-repository's existing gitignored location, normally `.ai/planning/prp/`.
+The workflow is deliberately proportional to the work.
 
-The PRP records the goal, requirements, meaningful decisions, observable
-behavior and experience acceptance criteria, real constraints, and relevant
-edge cases. It deliberately does not prescribe implementation steps or test
-technology. The user decides when to discard a completed PRP; execution does
-not delete it automatically.
+## PRPs
 
-Use [`/prp.execute`](commands/prp.execute.md) to read and implement a PRP. It
-requires a fresh repository investigation and a green `npm run verify` before
-code changes. It runs the same gate after implementation, re-reads the PRP,
-and inspects the final diff before entering any applicable review steps.
+For larger pieces of work I use **PRPs (Product Requirement Prompts)**.
 
-## Verification And Review
+A PRP is basically a temporary contract between me and the coding agent.
 
-### Deterministic gate
+Before implementation, the agent investigates the repository and captures things like:
 
-`npm run verify` is the authoritative deterministic quality contract for the
-repository being changed. That repository owns which formatter, linter, type
-check, test, build, architecture, security, or other checks it contains. This
-configuration must not turn that contract into a global gauntlet or add checks
-to a project that does not own them.
+* what we're trying to achieve;
+* the important requirements;
+* decisions we've already made;
+* constraints and edge cases; and
+* what should be observably true when the work is finished.
 
-The shared runner in [`scripts/verify.mjs`](scripts/verify.mjs) supports that
-contract. A repository can expose named checks through its own npm script and
-invoke them as `verify-runner --check <name> <npm-script> ...`. The runner:
+What it **doesn't** do is prescribe exactly how the agent should implement the feature.
 
-- executes checks sequentially and stops at the first failure;
-- keeps successful command output quiet while reporting check progress;
-- preserves failed stdout and stderr, the failed command, and its exit status;
-- forwards termination signals; and
-- works through [`scripts/verify-runner.cmd`](scripts/verify-runner.cmd) on
-  Windows.
+The repository and the agent still get to make those decisions based on the actual code.
 
-The [`verify-env` plugin](plugins/verify-env.mjs) prepends `scripts/` to the
-shell `PATH`, making the shared runner available to shell commands. The
-runner's behavior is covered by [`scripts/verify.test.mjs`](scripts/verify.test.mjs).
-The global configuration provides this runner, but does not itself define a
-root `npm run verify` script.
+PRPs are temporary working documents, not permanent project documentation. Once the feature is done, they've served their purpose.
 
-### Judgement gates
+## Verification
 
-Deterministic checks establish mechanical invariants and executable behavior;
-they do not reliably establish architectural fit, unnecessary complexity,
-maintainability, information hierarchy, usability, or visual coherence.
+One of the biggest ideas behind this setup is that **things which can be checked deterministically shouldn't depend on an agent remembering an instruction**.
 
-After verification, the workflow adds judgement only when the change warrants
-it:
+Each project owns an:
 
-| Change | Additional evidence |
-| --- | --- |
-| Meaningful user-facing work | Browser inspection of affected routes and states at representative desktop and mobile sizes, after verification. This is rendered evidence, not E2E or visual-regression infrastructure. |
-| Substantial engineering, architectural, integration, state, security, or maintainability work | Independent [`engineering-reviewer`](agent/engineering-reviewer.md). |
-| Meaningful user-facing work | Independent [`ui-reviewer`](agent/ui-reviewer.md), using fresh review context after rendered inspection. |
+```bash
+npm run verify
+```
 
-Reviewers judge and do not edit or implement fixes. Findings are evidence to
-investigate, not commands to follow blindly. High/blocker and medium findings
-must be resolved or shown not to apply; remediation is bounded to two passes
-per judgement gate. Any remediation that changes code requires another full
-`npm run verify`. The workflow finishes by returning the result to the human
-for product validation; passing checks and reviews do not decide product
-intent or unresolved trade-offs.
+That command represents the project's definition of mechanically healthy code.
 
-## Agents And Skills
+Depending on the project, that might include formatting, linting, type checking, tests, builds, architecture rules or other checks.
 
-### Agents
+This repo provides a shared verification runner so those checks behave consistently across my projects, but it deliberately doesn't decide what every repository should verify.
 
-- [`documentation`](agent/documentation.md) writes concise, high-signal
-  documentation and generates PRPs without implementing feature work.
-- [`engineering-reviewer`](agent/engineering-reviewer.md) independently reviews
-  substantial completed work for scope-relevant engineering risks. It is
-  read-only and does not run the full verification suite.
-- [`ui-designer`](agent/ui-designer.md) implements repository-grounded UI work,
-  using targeted checks and rendered inspection when available. The orchestrator
-  still owns final verification and independent UI review.
-- [`ui-reviewer`](agent/ui-reviewer.md) independently judges meaningful rendered
-  user-facing work. It is read-only and does not turn personal preference into
-  a defect.
-- The built-in `build` agent executes [`/prp.execute`](commands/prp.execute.md);
-  built-in `general` and `explore` are configured to use the session model in
-  [`opencode.json`](opencode.json).
+The project owns the rules. This workflow makes sure they get respected.
 
-### Specialist skills
+## Where agents still need judgement
 
-Skills are loaded progressively and only when their expertise is relevant.
+Not everything worth checking can be turned into a lint rule.
 
-- [`workflow-for-alex`](skills/workflow-for-alex/SKILL.md) governs ownership,
-  context economy, repository-first reasoning, deterministic enforcement, and
-  bounded orchestration.
-- [`repo-context`](skills/repo-context/SKILL.md) produces an observational,
-  evidence-based repository map. Its scanner and tests live under
-  [`skills/repo-context/`](skills/repo-context/).
-- [`angular`](skills/angular/SKILL.md) provides Angular judgement for meaningful
-  component, forms, data-access, state, testing, and architecture work. It
-  points to concern-specific references under
-  [`skills/angular/references/`](skills/angular/references/).
-- [`ui-designer`](skills/ui-designer/SKILL.md) covers practical interface
-  hierarchy, interaction, accessibility, responsive behavior, and rendered
-  validation. Its focused references live under
-  [`skills/ui-designer/references/`](skills/ui-designer/references/).
-- [`frontend-design`](skills/frontend-design/SKILL.md) supplies distinctive
-  visual direction for new or reshaped interfaces; it does not replace the
-  practical UI judgement in `ui-designer`.
-- [`playwright-tests`](skills/playwright-tests/SKILL.md) guides maintainable
-  Playwright tests, selectors, helpers, isolation, and assertions when a
-  repository actually uses Playwright.
-- [`ux-principles`](skills/ux-principles/SKILL.md) creates or refines a product's
-  `UX_PRINCIPLES.md` through repository evidence and focused product-owner
-  discovery. [`/ux.principles`](commands/ux.principles.md) uses it without
-  modifying product code or the PRP workflow.
-- [`skill-creator`](skills/skill-creator/SKILL.md) creates and improves skills,
-  including evaluation, comparison, benchmarking, feedback, and packaging
-  support. Its bundled agents, scripts, schemas, and viewer are under
-  [`skills/skill-creator/`](skills/skill-creator/).
+A test suite can tell me that something works. It can't reliably tell me that:
 
-## Boundaries And Ownership
+* the architecture makes sense;
+* a solution became unnecessarily complicated;
+* a UI has poor hierarchy;
+* an interaction feels awkward; or
+* something technically correct is still a bad product decision.
 
-The ownership model is intentional:
+For meaningful changes, the workflow can therefore bring in independent engineering or UI reviewers.
 
-- `AGENTS.md` holds durable cross-project engineering judgement and worktree
-  boundaries.
-- Repository code, configuration, tests, and product documentation own local
-  truth, behavior, and mechanical validation.
-- Skills provide specialist expertise; agents provide role separation; commands
-  provide orchestration; PRPs provide temporary requirements and acceptance
-  criteria.
-- The human owns product intent, genuine unresolved trade-offs, and final
-  product validation.
+These reviewers don't edit the code. Their job is to look at the finished work with fresh context and point out things the implementing agent may have missed.
 
-Keep work scoped to the request and the PRP. Prefer the repository's existing
-patterns and capabilities, preserve unrelated user changes, and do not add a
-framework, E2E system, or global quality rule as incidental feature work.
-Implementers implement; reviewers review. Git history stays under the user's
-control: this configuration does not commit, push, merge, rebase, or create
-branches unless explicitly requested.
+For UI work, there's another important step: **look at the actual rendered interface**.
 
-## Structure
+Passing tests isn't proof that a UI looks good.
 
-| Path | Responsibility |
-| --- | --- |
-| [`AGENTS.md`](AGENTS.md) | Durable engineering judgement, communication expectations, and user-controlled git/worktree boundaries. |
-| [`opencode.json`](opencode.json) | OpenCode configuration: model overrides, the local verification plugin, and the headless isolated Playwright MCP server. |
-| [`commands/`](commands/) | User-invoked orchestration for PRP generation/execution, UX principles, and workflow audits. |
-| [`agent/`](agent/) | File-based custom agent roles, including documentation, implementation/design, and independent reviewers. |
-| [`skills/`](skills/) | Progressive specialist guidance plus references, executable helpers, and tests owned by individual skills. |
-| [`plugins/`](plugins/) | OpenCode plugin hooks; currently the shell environment hook that exposes shared scripts. |
-| [`scripts/`](scripts/) | Cross-repository verification runner and its tests. |
-| [`.gitignore`](.gitignore) | Excludes local dependencies/metadata and temporary PRP artifacts such as `.ai/planning/prp/`. |
-| `package.json` (local, ignored) | Node package metadata for the OpenCode plugin API dependency when present in the local installation; package metadata and dependencies are not repository-owned. |
+## What's in here?
 
-For detailed behavior, use the command, agent, or skill file linked above rather
-than treating this orientation document as a second instruction source.
+The repo is roughly split into a few building blocks:
+
+```text
+commands/   → workflows I explicitly invoke
+agent/      → specialised agent roles
+skills/     → expertise loaded when it's actually needed
+scripts/    → shared deterministic tooling
+plugins/    → small OpenCode integrations
+AGENTS.md   → durable engineering principles for the workflow
+```
+
+Some examples:
+
+**Commands** handle things like generating and executing PRPs or defining UX principles.
+
+**Skills** provide focused knowledge for areas like Angular, UI design, Playwright, repository investigation and skill creation.
+
+**Agents** give specific jobs to fresh contexts — for example an engineering reviewer or UI reviewer that didn't implement the original change.
+
+**Scripts** contain reusable tooling such as the verification runner used across repositories.
+
+## Repository first
+
+A really important boundary in this setup is that **this repo does not try to become the source of truth for every project I work on**.
+
+If I'm working on an Angular application, that application's repository should tell the agent how the application is structured, how it is tested and what conventions it follows.
+
+This config sits above that.
+
+It provides a consistent way of approaching the work without pretending every codebase is the same.
+
+That separation also means I can keep improving the workflow here without coupling every project to a giant global instruction file.
+
+## Human stays in the loop
+
+The end goal isn't an autonomous agent that gets to decide when a product is finished.
+
+The workflow tries to automate the parts where automation is useful:
+
+**investigation → implementation → verification → review**
+
+But product intent and final validation stay with me.
+
+An agent can prove that the tests pass.
+
+It can give me evidence that the implementation is sound.
+
+It can review the interface.
+
+It still doesn't get to decide whether we built the right thing.
+
+## Can I use this?
+
+Absolutely.
+
+This repo is public mainly because I wanted to share the workflow I've been building and evolving while using coding agents day to day.
+
+It's opinionated around how **I** like to work, so I wouldn't recommend blindly copying the whole thing and expecting it to fit your setup.
+
+Browse it. Steal the bits you like. Change the bits you don't.
+
+If it gives you one useful idea for improving your own coding-agent workflow, then it has done its job.
