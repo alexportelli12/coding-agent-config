@@ -41,7 +41,8 @@ follow-up information.
 Keep git history under my control. Outside a user-invoked workflow that
 explicitly owns Git delivery, do not commit, push, rebase, or create branches
 unless I ask. An owning workflow may commit intended changes, push a feature
-branch, and create a pull request only after its safeguards pass. Never
-automatically merge, push feature work directly to the default branch, force
-push, rewrite unrelated history, or include, discard, or overwrite unrelated
-user changes.
+branch, and create a pull request only after its safeguards pass, using its
+centralized lifecycle tooling rather than changing the launch checkout
+directly. Never automatically merge, push feature work directly to the default
+branch, force push, rewrite unrelated history, automatically stash, or include,
+discard, or overwrite unrelated user changes.

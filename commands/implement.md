@@ -9,6 +9,39 @@ Take the request in `$ARGUMENTS` from repository-grounded discovery through a
 pull request ready for human product validation. The active session is the task
 contract; do not create or persist a planning or requirements artifact.
 
+## Prepare The Isolated Workspace
+
+Before repository discovery or any feature work, run from the launch checkout:
+
+```bash
+implementation-workspace prepare --slug "<short-request-slug>"
+```
+
+Use `--prefix` only when an already-known repository instruction requires a
+different branch prefix. The centralized tool must establish that this is the
+clean primary control worktree on the checked-out remote default branch, fetch
+the configured remote, fast-forward the local default branch when safe, and
+create a collision-safe feature branch in a dedicated locked worktree. Record
+its JSON result, especially `worktreePath`, `sessionId`, `branch`,
+`defaultBranch`, and `baseSha`, in session context.
+
+From this point onward, run every repository inspection, command, delegated
+task, edit, verification, render, review, remediation, and delivery operation
+against `worktreePath`, never the control checkout. Pass the exact `sessionId`
+to later lifecycle operations. If deterministic preparation fails, report its
+diagnostic and stop; do not stash, switch branches, improvise another worktree,
+or attempt more aggressive Git recovery.
+
+Workspace preparation intentionally precedes repository discovery so all
+repository evidence is gathered from the isolated checkout. Apply branch
+naming requirements already present in launch-time instructions; if discovery
+later reveals an incompatible hard requirement, stop rather than renaming the
+owned branch outside the lifecycle tool.
+
+Prepare dependencies inside the isolated worktree using the repository's
+documented deterministic setup when needed. Do not share or link mutable
+dependency directories between implementation worktrees.
+
 ## Establish The Task Contract
 
 Before changing code:
@@ -47,22 +80,14 @@ lists, implementation steps, test technology, or speculative abstractions.
 
 Before implementation:
 
-1. Inspect repository-specific Git, contribution, branch, and pull-request
-   conventions, then inspect the current branch, default branch, remotes,
-   worktree, and existing branch commits relative to the intended base. Record
-   pre-existing changes in session context so they cannot be included later.
-2. Run `npm run verify`.
-3. Ensure implementation will occur on the intended feature branch. Reuse an
-   appropriate existing branch, or create one after the green baseline using
-   repository conventions. Do not implement feature work on the default branch.
+1. Inspect repository-specific contribution, commit, and pull-request
+   conventions from the isolated worktree.
+2. Run `npm run verify` there.
 
 If the preflight verify fails, stop and report the failure. Do not begin
 implementation or attempt to classify failures as pre-existing.
-
-Preserve pre-existing user changes. If they overlap the intended work so that
-their ownership cannot be separated safely, or if the intended branch cannot
-be established confidently, stop and ask the user rather than risking an
-incorrect commit.
+The locked worktree remains retained for diagnosis because automated cleanup is
+not yet a proven lifecycle operation.
 
 The implementation invariant is: the repository was green when work began.
 
@@ -183,32 +208,65 @@ high/blocker or medium findings remain after two passes, stop and involve the
 user. Low findings do not consume a pass unless the orchestrator or user
 explicitly chooses to address them.
 
+## Follow-Up On An Existing Pull Request
+
+When this active session already owns a retained `worktreePath`, `sessionId`,
+and pull-request URL, reuse that exact workspace instead of running `prepare`.
+Never infer ownership of another retained worktree. Run `sync` before follow-up
+changes, refresh the active task contract for the request, and establish a green
+baseline after any synchronization. Then use the normal implementation,
+verification, review, commit, evidence, synchronization, and publication gates.
+Publication updates the existing pull-request branch; do not create a second
+pull request. Record the existing URL again with `mark-pr` after publication.
+
 ## Pull Request Delivery
 
 Only enter this stage after final `npm run verify`, applicable rendered
 inspection, and all applicable independent judgement and remediation gates have
 completed with no unresolved `high/blocker` or `medium` findings.
 
-1. Re-read the original request, active task contract, final diff, and review
-   evidence. Inspect Git status, the current and default branches, remotes,
-   upstream, the full branch commit and diff range against the intended base,
-   and any applicable contribution guidance or pull-request template again.
-2. Compare the final worktree with the recorded preflight state. Stage only the
-   intended implementation and verify the staged diff. Do not commit unrelated
-   user changes or an empty change.
-3. Load `commit-pr-writing` and use it to derive the commit message, pull-request
-   title, and pull-request description from the final outcome and evidence.
-   Repository-required message conventions and pull-request templates take
+1. Re-read the original request, active task contract, final diff, review
+   evidence, applicable contribution guidance, and pull-request template.
+   Inspect the full implementation diff and worktree status again.
+2. Stage only the intended implementation and verify the staged diff. Do not
+   commit an unrelated or empty change.
+3. Load `commit-pr-writing` and use it to derive the commit message from the
+   completed outcome and evidence. Repository-required message conventions take
    precedence.
-4. Confirm the intended feature branch is not the repository's default branch,
-   create the commit, and push that branch normally without force.
-5. Create the pull request against the appropriate base branch. Never merge it.
+4. Create the commit, then run
+   `implementation-workspace record-evidence --session "<sessionId>"`. This
+   records that the current committed tree is covered by the completed gates.
+   Run `implementation-workspace sync --session "<sessionId>"`. This re-fetches
+   the remote default branch and either confirms
+   the recorded base is current, safely rebases exclusively session-owned
+   unpublished commits, or merges the current default into already-published
+   follow-up history without rewriting it.
+5. When synchronization reports `requiresRevalidation: true`, treat prior
+   evidence as stale: rerun `npm run verify`, inspect the resulting diff, and
+   repeat rendered inspection or independent judgement only where the upstream
+   integration could materially affect that evidence. Commit any resulting
+   remediation as an intended additional commit using `commit-pr-writing`.
+   Record evidence for the resulting committed tree, then synchronize again.
+6. Run `implementation-workspace publish --session "<sessionId>"`. It performs
+   one final fetch and synchronization check and pushes only the owned feature
+   branch without force. It must return `published: false` while the current
+   tree lacks recorded evidence. If its final synchronization changes the tree,
+   refresh the affected gates and record evidence before retrying.
+7. After successful publication, use `commit-pr-writing` to derive the
+   pull-request title and description from the final synchronized outcome and
+   current evidence. For initial delivery, create the pull request against the
+   `defaultBranch` reported by the latest lifecycle result. For follow-up
+   delivery, update the existing pull request's title and description instead;
+   do not create another pull request. Never merge it. Then run
+   `implementation-workspace mark-pr --session "<sessionId>" --url "<pr-url>"`
+   so the retained worktree records that it is awaiting review.
 
-If committing, pushing, authentication, remote access, or pull-request creation
-fails, preserve the implementation and any commit already created. Report the
-failed stage and useful recovery evidence clearly. Do not bypass permissions,
-rewrite history, force push, discard work, include unrelated changes, or
-improvise destructive recovery.
+If committing, lifecycle synchronization, pushing, authentication, remote
+access, or pull-request creation fails, preserve the implementation worktree
+and any commit already created. Report the failed stage and the centralized
+tool's diagnostic clearly. Do not bypass permissions, resolve ambiguous
+ownership or conflicts by guessing, rewrite shared history, force push, stash,
+discard work, include unrelated changes, or improvise destructive recovery.
 
 ## Completion
 
@@ -218,4 +276,5 @@ for human product validation and a merge decision.
 Return the pull-request reference and link, a concise verification summary,
 applicable rendered or independent-review evidence, and any unresolved
 low-severity concerns useful during product review. Do not merge the pull
-request.
+request. Keep the locked implementation worktree for follow-up changes in this
+session; PR creation is not a cleanup boundary.

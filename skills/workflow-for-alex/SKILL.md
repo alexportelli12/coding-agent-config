@@ -35,7 +35,7 @@ Use this hierarchy when deciding where information or responsibility belongs:
 | `AGENTS.md` | Durable cross-project engineering judgement |
 | Repository code, config, and docs | Repository-specific truth |
 | `repo-context` | Observational repository evidence |
-| Deterministic tooling and `verify` | Mechanical invariants |
+| Deterministic tooling and `verify` | Mechanical invariants, including implementation workspace and Git lifecycle safety |
 | Tests | Executable behavioural specifications |
 | Skills | Specialist expertise |
 | Agents | Specialist roles |
@@ -119,8 +119,9 @@ from this configuration.
 
 Shared deterministic tooling may suppress captured output for successful checks
 while preserving diagnostics for failures. This reporting policy belongs to the
-tooling, not to agent instructions. `npm run verify` remains the only workflow
-gate agents invoke.
+tooling, not to agent instructions. `npm run verify` remains the only repository
+quality gate agents invoke; implementation lifecycle commands separately
+enforce workspace and Git safety.
 
 Metrics such as CRAP score and duplication are bounded signals, not global
 ideology. Prefer scoped or differential enforcement where practical, calibrate
@@ -158,9 +159,19 @@ pushing its feature branch, and creating a pull request. This delivery boundary
 must not bypass quality gates, include unrelated work, push feature work to the
 default branch, or merge the pull request. The human reviews the completed pull
 request, performs final product validation, requests further changes when
-needed, and decides whether and when to merge. The delivery command owns Git
-mechanics; `commit-pr-writing` owns the specialist judgement for commit and
-pull-request copy.
+needed, and decides whether and when to merge. `/implement` orchestrates the
+lifecycle; centralized tooling owns deterministic default-branch
+synchronization, session ownership, worktree isolation, safe history updates,
+and non-force feature-branch publication. `commit-pr-writing` owns specialist
+judgement for commit and pull-request copy.
+
+The normal repository checkout is the control worktree for `/implement`, not
+the feature workspace. Each invocation must receive a distinct owned linked
+worktree before repository work begins, and all subsequent feature operations
+remain there. The tool must fail closed rather than stash user state, reuse an
+ambiguously owned worktree, rewrite shared history, or guess through conflicts.
+Retain the workspace after pull-request creation so the owning session can make
+follow-up changes; cleanup requires a separately proven safe lifecycle boundary.
 
 ## Session task contracts
 

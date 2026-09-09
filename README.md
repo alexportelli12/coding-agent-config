@@ -81,9 +81,13 @@ The contract also doesn't prescribe exactly how the agent should implement the f
 
 If investigation reveals a material product or architectural ambiguity, the agent asks me. Otherwise it continues without a separate planning approval checkpoint.
 
-After discovery, the command establishes a green verification baseline, implements on a safe feature branch, runs final verification, performs applicable rendered inspection and independent review, and remediates meaningful findings. Only then does it commit the intended changes, push the feature branch and create the pull request.
+The command first synchronizes the repository's normal control checkout using explicit fetch and fast-forward semantics, then creates a dedicated feature branch and linked worktree outside the repository. Discovery, dependency setup, implementation, verification and review all happen in that isolated workspace, so concurrent `/implement` sessions do not share branches, staged files or mutable dependency state.
+
+After a green verification baseline, the command implements, runs final verification, performs applicable rendered inspection and independent review, and remediates meaningful findings. It then commits the intended changes and records that the committed tree is covered by the completed evidence before rechecking the remote default branch. Centralized lifecycle tooling rebases only session-owned unpublished commits, preserves published follow-up history with a merge when synchronization is required, and stops on ambiguous or conflicting state. Any effective integration change clears that evidence record, so the branch remains unpublishable until the command refreshes the affected gates and records the new tree.
 
 It never merges the pull request.
+
+The implementation worktree stays locked and available after PR creation for follow-up requests in the same session. Follow-ups synchronize and update that exact owned branch and existing PR rather than creating another workspace or PR. Failed preflights are also retained for diagnosis. Automatic stale-worktree deletion is deliberately not part of the workflow yet.
 
 ## Verification
 
@@ -146,7 +150,7 @@ Some examples:
 
 **Agents** give specific jobs to fresh contexts, for example an engineering reviewer or UI reviewer that didn't implement the original change.
 
-**Scripts** contain reusable tooling such as the verification runner used across repositories.
+**Scripts** contain reusable tooling such as the verification runner and the deterministic implementation workspace lifecycle used across repositories.
 
 ## Repository first
 
