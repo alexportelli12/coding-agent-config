@@ -8,7 +8,7 @@ Instead, I want the workflow around the agent to do a lot of the heavy lifting.
 
 This repo is my attempt at building that workflow.
 
-It gives [OpenCode](https://opencode.ai/) a shared set of commands, skills, agents and verification tools that I can use across different repositories. The application repo still owns its architecture, conventions and quality checks — this config provides the workflow around them.
+It gives [OpenCode](https://opencode.ai/) a shared set of commands, skills, agents and verification tools that I can use across different repositories. The application repo still owns its architecture, conventions and quality checks. This config provides the workflow around them.
 
 ## What problem am I trying to solve?
 
@@ -17,12 +17,13 @@ Coding agents are very capable, but giving one a task and hoping for the best ca
 I've found that the quality improves significantly when the agent is encouraged to:
 
 * understand the repository before changing it;
-* turn larger tasks into a clear requirements contract;
+* establish a clear requirements contract for the active task;
 * start from a known-good baseline;
 * use deterministic tooling to catch things machines are good at catching;
 * actually inspect UI changes rather than assuming they look right;
-* get a fresh pair of eyes on changes where judgement matters; and
-* leave the final product decision to me.
+* get a fresh pair of eyes on changes where judgement matters;
+* deliver completed work as a reviewable pull request; and
+* leave the final product and merge decisions to me.
 
 The goal isn't to make the agent follow a huge rulebook.
 
@@ -39,7 +40,7 @@ Understand the task
         ↓
 Investigate the repository
         ↓
-Define what "done" means
+Define what "done" means in the active session
         ↓
 Verify the repo is healthy
         ↓
@@ -51,22 +52,22 @@ Inspect the actual result
         ↓
 Independent review where useful
         ↓
-I validate the product
+Create a pull request
+        ↓
+I validate the product and decide whether to merge
 ```
 
 Not every change needs every step.
 
-A tiny mechanical change shouldn't require a requirements document and multiple reviewers. A substantial feature probably should.
+A tiny mechanical change shouldn't require exhaustive requirements analysis and multiple reviewers. A substantial feature probably should.
 
 The workflow is deliberately proportional to the work.
 
-## PRPs
+## Implementation workflow
 
-For larger pieces of work I use **PRPs (Product Requirement Prompts)**.
+[`/implement`](commands/implement.md) is the single command for taking a request from discovery through a pull request ready for review.
 
-A PRP is basically a temporary contract between me and the coding agent.
-
-Before implementation, the agent investigates the repository and captures things like:
+The agent first investigates the repository and establishes a lean task contract in the active session. That contract captures things like:
 
 * what we're trying to achieve;
 * the important requirements;
@@ -74,11 +75,15 @@ Before implementation, the agent investigates the repository and captures things
 * constraints and edge cases; and
 * what should be observably true when the work is finished.
 
-What it **doesn't** do is prescribe exactly how the agent should implement the feature.
+The session itself is the working artifact. The workflow doesn't create a separate planning or requirements document.
 
-The repository and the agent still get to make those decisions based on the actual code.
+The contract also doesn't prescribe exactly how the agent should implement the feature. The repository and the agent still get to make those decisions based on the actual code.
 
-PRPs are temporary working documents, not permanent project documentation. Once the feature is done, they've served their purpose.
+If investigation reveals a material product or architectural ambiguity, the agent asks me. Otherwise it continues without a separate planning approval checkpoint.
+
+After discovery, the command establishes a green verification baseline, implements on a safe feature branch, runs final verification, performs applicable rendered inspection and independent review, and remediates meaningful findings. Only then does it commit the intended changes, push the feature branch and create the pull request.
+
+It never merges the pull request.
 
 ## Verification
 
@@ -97,6 +102,8 @@ Depending on the project, that might include formatting, linting, type checking,
 This repo provides a shared verification runner so those checks behave consistently across my projects, but it deliberately doesn't decide what every repository should verify.
 
 The project owns the rules. This workflow makes sure they get respected.
+
+The command must pass before implementation begins and again after implementation or remediation. Pull-request delivery only starts after final verification and every applicable judgement gate is clear of unresolved high or medium findings.
 
 ## Where agents still need judgement
 
@@ -133,11 +140,11 @@ AGENTS.md   → durable engineering principles for the workflow
 
 Some examples:
 
-**Commands** handle things like generating and executing PRPs or defining UX principles.
+**Commands** handle implementing a request end to end, defining UX principles or auditing the workflow itself.
 
-**Skills** provide focused knowledge for areas like Angular, UI design, Playwright, repository investigation and skill creation.
+**Skills** provide focused knowledge for areas like Angular, UI design, Playwright, repository investigation, commit and pull-request writing, and skill creation.
 
-**Agents** give specific jobs to fresh contexts — for example an engineering reviewer or UI reviewer that didn't implement the original change.
+**Agents** give specific jobs to fresh contexts, for example an engineering reviewer or UI reviewer that didn't implement the original change.
 
 **Scripts** contain reusable tooling such as the verification runner used across repositories.
 
@@ -159,9 +166,9 @@ The end goal isn't an autonomous agent that gets to decide when a product is fin
 
 The workflow tries to automate the parts where automation is useful:
 
-**investigation → implementation → verification → review**
+**investigation → implementation → verification → review → pull-request delivery**
 
-But product intent and final validation stay with me.
+Product intent, final validation and the merge decision stay with me.
 
 An agent can prove that the tests pass.
 
@@ -169,7 +176,9 @@ It can give me evidence that the implementation is sound.
 
 It can review the interface.
 
-It still doesn't get to decide whether we built the right thing.
+It can prepare a concise pull request for me to review.
+
+It still doesn't get to decide whether we built the right thing or whether the pull request should be merged.
 
 ## Can I use this?
 

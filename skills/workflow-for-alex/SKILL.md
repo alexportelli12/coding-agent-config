@@ -1,6 +1,6 @@
 ---
 name: workflow-for-alex
-description: Design and evolve Alex's global coding-agent workflow configuration. Use when auditing or changing AGENTS.md, agents, commands, skills, PRP orchestration, validation ownership, or workflow governance.
+description: Design and evolve Alex's global coding-agent workflow configuration. Use when auditing or changing AGENTS.md, agents, commands, skills, implementation orchestration, validation ownership, or workflow governance.
 metadata:
   opencode/autoinvoke: false
 ---
@@ -40,8 +40,8 @@ Use this hierarchy when deciding where information or responsibility belongs:
 | Skills | Specialist expertise |
 | Agents | Specialist roles |
 | Commands | Workflow orchestration |
-| PRPs | Temporary feature requirements, decisions, and acceptance criteria |
-| Human | Product intent, unresolved trade-offs, and final product validation |
+| Active session | Temporary task requirements, decisions, and acceptance criteria |
+| Human | Product intent, unresolved trade-offs, pull-request review, final product validation, and merge decisions |
 
 Every instruction needs a legitimate owner. Avoid repeating an instruction in
 multiple layers unless both layers independently need it, such as reviewer
@@ -78,7 +78,7 @@ mechanism and remove the weaker duplicate where practical.
 Context is a resource. Every persistent instruction must materially improve a
 decision. Prefer progressive disclosure, specialist skills loaded only when
 relevant, repository inspection over copied facts, concise role definitions,
-temporary task contracts, and fresh evidence at decision boundaries.
+active session task contracts, and fresh evidence at decision boundaries.
 
 Avoid giant universal files, framework tutorials for capable models, duplicated
 validation instructions, permanent planning artifacts, stale repository
@@ -105,14 +105,14 @@ improvement merely because it is newer.
 
 ## Deterministic quality contract
 
-Repositories using the PRP workflow expose `npm run verify`. The repository
-owns what that command contains. It may combine formatting, lint, type checks,
-tests, builds, architecture boundaries, duplication or complexity signals,
-security checks, secrets detection, or other appropriate invariants. These are
-examples, not a universal gauntlet.
+Repositories using the implementation workflow expose `npm run verify`. The
+repository owns what that command contains. It may combine formatting, lint,
+type checks, tests, builds, architecture boundaries, duplication or complexity
+signals, security checks, secrets detection, or other appropriate invariants.
+These are examples, not a universal gauntlet.
 
 The global invariant is the interface: `npm run verify` is the repository's
-authoritative deterministic quality contract. PRP execution requires a green
+authoritative deterministic quality contract. `/implement` requires a green
 baseline before implementation and a green final result afterward. Do not
 duplicate repository-specific checks in global prose or add project tooling
 from this configuration.
@@ -152,10 +152,22 @@ targeted checks while implementing; they do not duplicate the full gauntlet.
 The orchestrator owns final verification. Independent reviewers run only when
 the change warrants them, and remediation loops remain bounded.
 
-## Temporary task artifacts
+For successful `/implement` execution, the orchestrator also owns routine
+delivery from the final green state through committing the intended change,
+pushing its feature branch, and creating a pull request. This delivery boundary
+must not bypass quality gates, include unrelated work, push feature work to the
+default branch, or merge the pull request. The human reviews the completed pull
+request, performs final product validation, requests further changes when
+needed, and decides whether and when to merge. The delivery command owns Git
+mechanics; `commit-pr-writing` owns the specialist judgement for commit and
+pull-request copy.
 
-PRPs are temporary task contracts, not permanent repository documentation. If
-implementation reveals enduring knowledge, graduate it to its proper owner:
+## Session task contracts
+
+The implementation task contract lives only in the active session. It keeps the
+request, resolved decisions, scope, and acceptance criteria available during
+execution without creating a planning artifact. If implementation reveals
+enduring knowledge, graduate it to its proper owner:
 
 - behaviour -> test;
 - mechanical invariant -> tooling;
@@ -164,8 +176,9 @@ implementation reveals enduring knowledge, graduate it to its proper owner:
 - repository fact -> repository itself;
 - workflow principle -> this skill.
 
-Do not preserve PRPs as historical context and do not automatically delete
-them. The user decides when task artifacts can be discarded.
+Do not create permanent or temporary repository documentation merely to preserve
+the session contract. The conversation remains execution context rather than a
+repository artifact.
 
 ## Evidence-driven evolution
 
@@ -194,17 +207,18 @@ Ask:
 Do not answer every failure by adding another prompt sentence. Prefer
 substitution, movement, consolidation, or deletion.
 
-Human product validation follows the same discipline. If it finds a problem
-after all gates pass, fix the feature and consider whether the failure class
-belongs in an executable specification, tooling, specialist guidance,
-reviewer guidance, product/UX principles, or workflow governance. One isolated
-mistake does not automatically justify a global change.
+Human product validation follows the same discipline. If reviewing the completed
+pull request finds a problem after all coding-workflow gates pass, fix the
+feature and consider whether the failure class belongs in an executable
+specification, tooling, specialist guidance, reviewer guidance, product/UX
+principles, or workflow governance. One isolated mistake does not automatically
+justify a global change.
 
 ## Calibration and audit
 
 Trust in the workflow must remain evidence-based. Occasionally examine real
 completed work that passed the workflow and ask whether important issues
-escaped. This is calibration, not another mandatory per-PRP gate. Calibrate
+escaped. This is calibration, not another mandatory per-change gate. Calibrate
 future metric thresholds against real repository evidence.
 
 Do not introduce scheduled audits, mandatory percentages, arbitrary ceremony,

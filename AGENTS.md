@@ -38,6 +38,10 @@ follow-up information.
 
 ## Worktree boundaries
 
-Keep git history under my control. Do not commit, push, merge, rebase, or create
-branches unless I explicitly ask. Preserve unrelated user changes, and do not
-discard or overwrite work you did not make.
+Keep git history under my control. Outside a user-invoked workflow that
+explicitly owns Git delivery, do not commit, push, rebase, or create branches
+unless I ask. An owning workflow may commit intended changes, push a feature
+branch, and create a pull request only after its safeguards pass. Never
+automatically merge, push feature work directly to the default branch, force
+push, rewrite unrelated history, or include, discard, or overwrite unrelated
+user changes.

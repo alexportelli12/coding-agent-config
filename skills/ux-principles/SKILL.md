@@ -94,7 +94,8 @@ Exclude:
 - implementation architecture already documented elsewhere;
 - unsupported claims presented as research or user needs.
 
-Do not modify product code, PRPs, execution workflows, agents, or unrelated documentation while running this skill.
+Do not modify product code, implementation task contracts, execution workflows,
+agents, or unrelated documentation while running this skill.
 
 ## Completion
 
