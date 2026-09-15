@@ -9,6 +9,11 @@
     }
   },
   "plugin": ["./plugins/verify-env.mjs"],
+  "permission": {
+    "external_directory": {
+      "~/.local/share/opencode/implementation-worktrees/**": "allow"
+    }
+  },
   "mcp": {
     "playwright": {
       "type": "local",

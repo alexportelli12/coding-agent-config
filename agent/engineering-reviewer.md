@@ -1,6 +1,7 @@
 ---
 description: Independently judge substantial completed implementations for engineering quality after deterministic verification
 mode: subagent
+model: opencode-go/glm-5.3-flash
 permission:
   read: allow
   edit: deny

@@ -5,3 +5,8 @@ bun.lock
 .ruff_cache
 package-lock.json
 skills-lock.json
+
+# installed by herdr
+herdr-tui-session.js
+plugins/herdr-agent-state.js
+tui.jsonc

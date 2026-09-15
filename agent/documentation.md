@@ -1,5 +1,6 @@
 ---
 description: Write and maintain concise documentation for AI agents
+model: openai/gpt-5.6-luna
 ---
 
 # Documentation Agent
