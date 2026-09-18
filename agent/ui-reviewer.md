@@ -12,6 +12,26 @@ permission:
     "git log*": allow
     "git show*": allow
     "git rev-parse*": allow
+    "git ls-files*": allow
+    "git rev-list*": allow
+    "git blame*": allow
+    "git branch --list*": allow
+    "git worktree list*": allow
+    "git describe*": allow
+    "rg": allow
+    "rg *": allow
+    "grep": allow
+    "grep *": allow
+    "ls": allow
+    "ls *": allow
+    "find": allow
+    "find *": allow
+    "wc": allow
+    "wc *": allow
+    "head": allow
+    "head *": allow
+    "tail": allow
+    "tail *": allow
   task: deny
   skill: allow
   webfetch: deny

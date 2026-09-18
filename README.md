@@ -87,7 +87,20 @@ After a green verification baseline, the command implements, runs final verifica
 
 It never merges the pull request.
 
-The implementation worktree stays locked and available after PR creation for follow-up requests in the same session. Follow-ups synchronize and update that exact owned branch and existing PR rather than creating another workspace or PR. Failed preflights are also retained for diagnosis. Automatic stale-worktree deletion is deliberately not part of the workflow yet.
+The implementation worktree stays locked and available after PR creation for follow-up requests in the same session. Follow-ups synchronize and update that exact owned branch and existing PR rather than creating another workspace or PR. Failed preflights are also retained for diagnosis. Lifecycle operations resolve the owned worktree from session metadata, so agents no longer need to remember which directory they run from.
+
+The lifecycle also includes small workspace utilities:
+
+```bash
+implementation-workspace list                     # all retained workspaces
+implementation-workspace info --session <id>      # path, branch, PR for one
+implementation-workspace cleanup                  # dry-run report by default
+implementation-workspace cleanup --dry-run false  # actually remove safe ones
+```
+
+`prepare` copies gitignored local env files (`.env*`) from the control checkout into each fresh worktree — never overwriting existing files and reporting exactly what it provisioned — so repositories that need machine-local environment configuration verify without manual copying. Transient evidence such as rendered-inspection screenshots or analysis documents is written to a temporary directory inside the owned worktree or a system temporary directory, never into the control checkout.
+
+`cleanup` deletes retained worktrees only when it can deterministically establish that removing the worktree cannot discard the only useful representation of the implementation history. GitHub state (`gh pr view`) must report the recorded pull request merged or closed, and Git evidence must confirm consumption: the branch head (or the PR's recorded merge commit, for squash merges) must be contained in a freshly fetched remote default branch. Open pull requests, missing pull-request metadata, dirty worktrees, the invoking worktree, in-flight operations, and any state that cannot be proven with Git evidence are always protected, and the local branch is deleted only when Git itself accepts a safe `branch -d`.
 
 ## Verification
 

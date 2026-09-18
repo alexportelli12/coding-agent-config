@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -64,12 +64,22 @@ async function createFixture(t) {
   return { root, remote, seed, control, worktrees };
 }
 
-async function lifecycle(fixture, cwd, operation, options = {}, allowedExitCodes = [0]) {
+async function pathExists(candidate) {
+  try {
+    await access(candidate);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function lifecycle(fixture, cwd, operation, options = {}, allowedExitCodes = [0], extraEnv = {}) {
   const args = [cli, operation];
   for (const [key, value] of Object.entries(options)) args.push(`--${key}`, value);
   const result = await run(process.execPath, args, {
     cwd,
-    env: { OPENCODE_WORKTREE_ROOT: fixture.worktrees },
+    env: { OPENCODE_WORKTREE_ROOT: fixture.worktrees, ...extraEnv },
     allowedExitCodes,
   });
   return {
@@ -448,4 +458,347 @@ done
     [2],
   );
   assert.match(retry.stderr, /incomplete publication operation/);
+});
+
+async function withEnvGitignore(t) {
+  const fixture = await createFixture(t);
+  await commit(fixture.seed, ".env.example", "template\n", "env template");
+  await writeFile(path.join(fixture.seed, ".gitignore"), ".env*\nscratch.txt\n", "utf8");
+  await git(fixture.seed, "add", ".gitignore");
+  await git(fixture.seed, "commit", "--quiet", "-m", "ignore local env files");
+  await git(fixture.seed, "push", "--quiet", "origin", "trunk");
+  await git(fixture.control, "pull", "--quiet", "--ff-only");
+  return fixture;
+}
+
+test("provisions gitignored env files from the control checkout into the new worktree", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  await writeFile(path.join(fixture.control, ".env"), "LOCAL=control\n", "utf8");
+  await writeFile(path.join(fixture.control, ".env.dev"), "DEV=1\n", "utf8");
+  await writeFile(path.join(fixture.control, "scratch.txt"), "ignored but not env\n", "utf8");
+
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "env provisioning" });
+
+  assert.deepEqual(prepared.json.provisionedEnv, [".env", ".env.dev"]);
+  assert.equal(
+    await readFile(path.join(prepared.json.worktreePath, ".env"), "utf8"),
+    "LOCAL=control\n",
+  );
+  assert.equal(
+    await readFile(path.join(prepared.json.worktreePath, ".env.dev"), "utf8"),
+    "DEV=1\n",
+  );
+  assert.equal(
+    await readFile(path.join(prepared.json.worktreePath, ".env.example"), "utf8"),
+    "template\n",
+  );
+  assert.equal((await pathExists(path.join(prepared.json.worktreePath, "scratch.txt"))), false);
+  assert.equal((await git(prepared.json.worktreePath, "status", "--porcelain")).stdout, "");
+});
+
+test("a repository without local env files is unaffected by provisioning", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "no env files" });
+
+  assert.deepEqual(prepared.json.provisionedEnv, []);
+});
+
+test("lifecycle operations resolve the owned worktree from session metadata in any cwd", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "cwd free" });
+  await commit(prepared.json.worktreePath, "feature.txt", "feature\n", "feature");
+  await advanceRemote(fixture);
+
+  const synchronized = await lifecycle(
+    fixture,
+    fixture.control,
+    "sync",
+    { session: prepared.json.sessionId },
+  );
+  assert.equal(synchronized.json.operation, "sync");
+  assert.equal(synchronized.json.strategy, "rebase");
+
+  const recorded = await lifecycle(
+    fixture,
+    fixture.control,
+    "record-evidence",
+    { session: prepared.json.sessionId },
+  );
+  assert.equal(recorded.json.operation, "record-evidence");
+});
+
+test("an unknown session fails deterministically from any location", async (t) => {
+  const fixture = await createFixture(t);
+  await lifecycle(fixture, fixture.control, "prepare", { slug: "owned session" });
+
+  const result = await lifecycle(
+    fixture,
+    fixture.control,
+    "record-evidence",
+    { session: "does-not-exist" },
+    [2],
+  );
+  assert.match(result.stderr, /no implementation worktree for this session/);
+});
+
+test("info and list expose retained workspace summaries", async (t) => {
+  const fixture = await createFixture(t);
+  await lifecycle(fixture, fixture.control, "prepare", { slug: "summary one" });
+  const second = await lifecycle(fixture, fixture.control, "prepare", { slug: "summary two" });
+
+  const info = await lifecycle(
+    fixture,
+    fixture.control,
+    "info",
+    { session: second.json.sessionId },
+  );
+  assert.equal(info.json.operation, "info");
+  assert.equal(info.json.worktreePath, second.json.worktreePath);
+  assert.equal(info.json.branch, second.json.branch);
+
+  const list = await lifecycle(fixture, fixture.control, "list");
+  assert.equal(list.json.workspaces.length, 2);
+  assert.ok(list.json.workspaces.every((workspace) => workspace.worktreePath && workspace.branch));
+});
+
+async function ghStub(t) {
+  const stubDirectory = await mkdtemp(path.join(os.tmpdir(), "implementation-workspace-gh-"));
+  t.after(() => rm(stubDirectory, { recursive: true, force: true }));
+  const stub = path.join(stubDirectory, "gh");
+  await writeFile(stub, `#!/bin/sh
+pr=""
+for arg in "$@"; do
+  case "$arg" in */pull/*) pr="\${arg##*/pull/}";; esac
+done
+case "$pr" in ""|*[!0-9]*)
+  echo "gh: unresolvable pull request from arguments" >&2
+  exit 1
+;; esac
+if [ ! -f "\${GH_STUB_DIR}/\${pr}" ]; then
+  echo "gh: state not configured for pr \${pr}" >&2
+  exit 1
+fi
+state="\$(cat "\${GH_STUB_DIR}/\${pr}")"
+if [ "$state" = "MERGED" ] && [ -f "\${GH_STUB_DIR}/\${pr}.merge" ]; then
+  mergeOid="\$(cat "\${GH_STUB_DIR}/\${pr}.merge")"
+  printf '{"state":"MERGED","mergeCommit":{"oid":"%s"}}\\n' "$mergeOid"
+  exit 0
+fi
+printf '{"state":"%s"}\\n' "$state"
+`, "utf8");
+  await chmod(stub, 493);
+  return stubDirectory;
+}
+
+function ghEnv(stubDirectory) {
+  return { PATH: `${stubDirectory}:${process.env.PATH ?? ""}`, GH_STUB_DIR: stubDirectory };
+}
+
+async function setGhState(stubDirectory, prNumber, state) {
+  await writeFile(path.join(stubDirectory, String(prNumber)), state);
+}
+
+async function setGhMergeCommit(stubDirectory, prNumber, sha) {
+  await writeFile(path.join(stubDirectory, `${prNumber}.merge`), sha);
+}
+
+async function publishAndMark(fixture, prepared, content = "feature\n", prNumber = 7) {
+  await commit(prepared.json.worktreePath, "feature.txt", content, "feature");
+  await recordEvidence(fixture, prepared);
+  const published = await lifecycle(
+    fixture,
+    prepared.json.worktreePath,
+    "publish",
+    { session: prepared.json.sessionId },
+  );
+  assert.equal(published.json.published, true);
+  await lifecycle(
+    fixture,
+    prepared.json.worktreePath,
+    "mark-pr",
+    { session: prepared.json.sessionId, url: `https://example.test/pull/${prNumber}` },
+  );
+}
+
+async function pretendMerged(fixture, prepared) {
+  await git(fixture.seed, "fetch", "--quiet", "origin", prepared.json.branch);
+  await git(fixture.seed, "merge", "--quiet", "--ff-only", `origin/${prepared.json.branch}`);
+  await git(fixture.seed, "push", "--quiet", "origin", "trunk");
+  await git(fixture.control, "pull", "--quiet", "--ff-only");
+}
+
+test("cleanup protects closed, dirty, and no-PR worktrees without touching them", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const stub = await ghStub(t);
+  const first = await lifecycle(fixture, fixture.control, "prepare", { slug: "protect closed" });
+  await publishAndMark(fixture, first);
+  const second = await lifecycle(fixture, fixture.control, "prepare", { slug: "protect dirty" });
+  await publishAndMark(fixture, second);
+  await writeFile(path.join(second.json.worktreePath, "feature.txt"), "unfinished\n");
+  const third = await lifecycle(fixture, fixture.control, "prepare", { slug: "protect no pr" });
+  await setGhState(stub, 7, "CLOSED");
+
+  const result = await lifecycle(
+    fixture,
+    fixture.control,
+    "cleanup",
+    { "dry-run": "false" },
+    [0],
+    ghEnv(stub),
+  );
+  assert.equal(result.json.operation, "cleanup");
+  const byPath = new Map(result.json.results.map((row) => [row.worktreePath, row]));
+  const closed = byPath.get(first.json.worktreePath);
+  assert.equal(closed.decision, "protect");
+  assert.match(closed.reason, /closed but its history could not be established as consumed/);
+  assert.equal(byPath.get(second.json.worktreePath).decision, "protect");
+  assert.match(byPath.get(second.json.worktreePath).reason, /uncommitted or untracked work/);
+  assert.equal(byPath.get(third.json.worktreePath).decision, "protect");
+  assert.match(byPath.get(third.json.worktreePath).reason, /no recorded pull request/);
+  assert.equal(result.json.removedCount, 0);
+  for (const survivor of [first, second, third]) {
+    assert.equal(await pathExists(survivor.json.worktreePath), true);
+  }
+});
+
+test("cleanup dry-run reports decisions without removing anything", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const stub = await ghStub(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "dry run" });
+  await publishAndMark(fixture, prepared);
+  await pretendMerged(fixture, prepared);
+  await setGhState(stub, 7, "MERGED");
+
+  const dryRun = await lifecycle(
+    fixture,
+    fixture.control,
+    "cleanup",
+    { "dry-run": "true" },
+    [0],
+    ghEnv(stub),
+  );
+  assert.equal(dryRun.json.dryRun, true);
+  assert.equal(dryRun.json.removedCount, 0);
+  const dryRow = dryRun.json.results.find((row) => row.worktreePath === prepared.json.worktreePath);
+  assert.equal(dryRow.decision, "remove");
+  assert.equal(dryRow.prState, "MERGED");
+  assert.match(dryRow.reason, /confirmed consumed/);
+  assert.equal(await pathExists(prepared.json.worktreePath), true);
+  assert.ok((await run("git", ["branch", "--list", prepared.json.branch], { cwd: fixture.control })).stdout.includes(prepared.json.branch));
+
+  const removed = await lifecycle(
+    fixture,
+    fixture.control,
+    "cleanup",
+    { "dry-run": "false" },
+    [0],
+    ghEnv(stub),
+  );
+  assert.equal(removed.json.removedCount, 1);
+  assert.equal(await pathExists(prepared.json.worktreePath), false);
+  assert.ok(!(await run("git", ["branch", "--list", prepared.json.branch], { cwd: fixture.control })).stdout.includes(prepared.json.branch));
+});
+
+test("cleanup removes a merged-PR worktree and protects a closed unmerged one", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const stub = await ghStub(t);
+  const mergedScenario = await lifecycle(fixture, fixture.control, "prepare", { slug: "merged branch" });
+  await publishAndMark(fixture, mergedScenario, "merged feature\n", 1);
+  await pretendMerged(fixture, mergedScenario);
+  await setGhState(stub, 1, "MERGED");
+
+  const closedScenario = await lifecycle(fixture, fixture.control, "prepare", { slug: "closed branch" });
+  await publishAndMark(fixture, closedScenario, "closed feature\n", 2);
+  await setGhState(stub, 2, "CLOSED");
+
+  const result = await lifecycle(
+    fixture,
+    fixture.control,
+    "cleanup",
+    { "dry-run": "false" },
+    [0],
+    ghEnv(stub),
+  );
+  const byPath = new Map(result.json.results.map((row) => [row.worktreePath, row]));
+  const merged = byPath.get(mergedScenario.json.worktreePath);
+  assert.equal(merged.decision, "remove");
+  assert.equal(merged.removed, true);
+  assert.equal(merged.branchDeleted, true);
+  const closed = byPath.get(closedScenario.json.worktreePath);
+  assert.equal(closed.decision, "protect");
+  assert.match(closed.reason, /not contained in the remote default branch/);
+  assert.equal(await pathExists(closedScenario.json.worktreePath), true);
+  assert.ok((await run("git", ["branch", "--list", closedScenario.json.branch], { cwd: fixture.control })).stdout.includes(closedScenario.json.branch));
+});
+
+test("cleanup removes a squash-merged PR worktree through the recorded merge commit", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const stub = await ghStub(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "squash merge" });
+  await publishAndMark(fixture, prepared);
+
+  await git(fixture.seed, "fetch", "--quiet", "origin", prepared.json.branch);
+  await git(fixture.seed, "merge", "--squash", `origin/${prepared.json.branch}`);
+  await git(fixture.seed, "commit", "--quiet", "-m", "squash feature");
+  await git(fixture.seed, "push", "--quiet", "origin", "trunk");
+  await git(fixture.control, "pull", "--quiet", "--ff-only");
+  const squashSha = (await git(fixture.seed, "rev-parse", "HEAD")).stdout.trim();
+  await setGhState(stub, 7, "MERGED");
+  await setGhMergeCommit(stub, 7, squashSha);
+
+  const result = await lifecycle(
+    fixture,
+    fixture.control,
+    "cleanup",
+    { "dry-run": "false" },
+    [0],
+    ghEnv(stub),
+  );
+  const row = result.json.results.find((candidate) => candidate.worktreePath === prepared.json.worktreePath);
+  assert.equal(row.decision, "remove");
+  assert.equal(row.removed, true);
+  assert.equal(row.branchRetained, true);
+  assert.equal(row.branchDeleted, undefined);
+  assert.equal(await pathExists(prepared.json.worktreePath), false);
+});
+
+test("cleanup protects a merged PR whose consumption cannot be proven from Git", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const stub = await ghStub(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "unprovable merge" });
+  await publishAndMark(fixture, prepared);
+  await setGhState(stub, 7, "MERGED");
+
+  const result = await lifecycle(
+    fixture,
+    fixture.control,
+    "cleanup",
+    { "dry-run": "false" },
+    [0],
+    ghEnv(stub),
+  );
+  const row = result.json.results.find((candidate) => candidate.worktreePath === prepared.json.worktreePath);
+  assert.equal(row.decision, "protect");
+  assert.match(row.reason, /could not be established as consumed/);
+  assert.equal(await pathExists(prepared.json.worktreePath), true);
+});
+
+test("cleanup protects the worktree it is invoked from and undeterminable pull-request state", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const stub = await ghStub(t);
+  const active = await lifecycle(fixture, fixture.control, "prepare", { slug: "active from here" });
+  await publishAndMark(fixture, active);
+  await pretendMerged(fixture, active);
+
+  const result = await lifecycle(
+    fixture,
+    active.json.worktreePath,
+    "cleanup",
+    { "dry-run": "false" },
+    [0],
+    ghEnv(stub),
+  );
+  const row = result.json.results.find((candidate) => candidate.worktreePath === active.json.worktreePath);
+  assert.equal(row.decision, "protect");
+  assert.equal(await pathExists(active.json.worktreePath), true);
 });

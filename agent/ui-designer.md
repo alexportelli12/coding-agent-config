@@ -53,6 +53,10 @@ Infer the mode from the task and keep its boundary clear.
   when browser tooling is available, inspect the rendered flow at representative
   mobile and desktop viewport sizes. Do not run the full repository validation
   gauntlet as delegated work; the orchestrator owns final `npm run verify`.
+- Transient evidence is not a deliverable: write rendered-inspection
+  screenshots, generated summaries, analysis drafts, and other artifacts to a
+  temporary directory inside the owned implementation worktree or a system
+  temporary directory — never into the control checkout or the tracked tree.
 - Fix meaningful implementation issues you find and re-check them. This is
   implementation validation, not the independent final UI judgement gate.
 

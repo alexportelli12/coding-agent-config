@@ -69,7 +69,10 @@ Do not load every reference by default.
 
 During implementation, inspect the actual rendered interface at representative
 viewport sizes when tooling permits. Use browser interaction and screenshots
-where practical; source code and CSS values alone cannot establish visual
+where practical; source code and CSS values alone cannot establish visual results.
+Write screenshots and inspection artifacts into a temporary directory inside
+the owned implementation worktree or a system temporary directory — never into
+the control checkout or the tracked tree.
 quality. This targeted inspection supports implementation and does not replace
 the orchestrator's final verification or the independent UI review.
 
