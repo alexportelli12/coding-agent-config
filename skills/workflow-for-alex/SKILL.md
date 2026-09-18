@@ -171,7 +171,13 @@ worktree before repository work begins, and all subsequent feature operations
 remain there. The tool must fail closed rather than stash user state, reuse an
 ambiguously owned worktree, rewrite shared history, or guess through conflicts.
 Retain the workspace after pull-request creation so the owning session can make
-follow-up changes; cleanup requires a separately proven safe lifecycle boundary.
+follow-up changes; PR-state-driven cleanup decides from authoritative GitHub
+state and protects open, dirty, or metadata-less workspaces.
+
+Transient evidence is not deliverable work: screenshots, rendered-inspection
+output, analysis documents, and temporary reports are written to a temporary
+directory inside the owned implementation worktree or a system temporary
+directory — never into the control checkout.
 
 ## Session task contracts
 

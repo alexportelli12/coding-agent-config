@@ -28,9 +28,16 @@ its JSON result, especially `worktreePath`, `sessionId`, `branch`,
 From this point onward, run every repository inspection, command, delegated
 task, edit, verification, render, review, remediation, and delivery operation
 against `worktreePath`, never the control checkout. Pass the exact `sessionId`
-to later lifecycle operations. If deterministic preparation fails, report its
-diagnostic and stop; do not stash, switch branches, improvise another worktree,
-or attempt more aggressive Git recovery.
+to later lifecycle operations; lifecycle operations resolve the owned worktree
+from session metadata and may run from any location inside the repository, so
+cwd mistakes self-correct instead of failing. If deterministic preparation
+fails, report its diagnostic and stop; do not stash, switch branches, improvise
+another worktree, or attempt more aggressive Git recovery.
+
+`prepare` copies gitignored local env files (`.env*`) from the control checkout
+into the fresh worktree and reports them as `provisionedEnv`. Never invent,
+edit, or commit these files; they are machine-local inputs the repository needs
+for verification and remain untracked in the worktree.
 
 Workspace preparation intentionally precedes repository discovery so all
 repository evidence is gathered from the isolated checkout. Apply branch
@@ -86,8 +93,8 @@ Before implementation:
 
 If the preflight verify fails, stop and report the failure. Do not begin
 implementation or attempt to classify failures as pre-existing.
-The locked worktree remains retained for diagnosis because automated cleanup is
-not yet a proven lifecycle operation.
+The locked worktree remains retained for diagnosis; lifecycle `cleanup`
+protects it because no pull request was recorded.
 
 The implementation invariant is: the repository was green when work began.
 
@@ -155,10 +162,12 @@ affected route or state, meaningful interactions, representative desktop and
 mobile layouts, runtime or console errors, obvious responsive failures, and
 relevant accessibility behaviour as appropriate.
 
-This is rendered evidence and judgement, not repository E2E or visual
-regression infrastructure. Do not add committed screenshots or pixel baselines.
-Do not claim subjective hierarchy, coherence, usability, or product intent as
-deterministic verification.
+Transient evidence is not a deliverable: rendered-inspection screenshots,
+analysis documents, temporary reports, and other generated artifacts must be
+written to a temporary directory inside the isolated implementation worktree or
+a system temporary directory — never into the control checkout. Do not add
+committed screenshots or pixel baselines. Do not claim subjective hierarchy,
+coherence, usability, or product intent as deterministic verification.
 
 ## Independent Judgement
 
@@ -275,6 +284,27 @@ for human product validation and a merge decision.
 
 Return the pull-request reference and link, a concise verification summary,
 applicable rendered or independent-review evidence, and any unresolved
-low-severity concerns useful during product review. Do not merge the pull
-request. Keep the locked implementation worktree for follow-up changes in this
-session; PR creation is not a cleanup boundary.
+low-severity concerns useful during product review. Also surface the retained
+implementation workspace for human validation: run
+
+```bash
+implementation-workspace info --session "<sessionId>"
+```
+
+and include its `worktreePath`, `branch`, and `prUrl` verbatim, plus a note
+that working inside the workspace starts with changing into `worktreePath` of
+the retained locked worktree followed by the repository's own documented
+setup/run commands. Surface only run commands discovered from repository
+evidence; do not invent repository commands. Do not merge the pull request.
+Keep the locked implementation worktree for follow-up changes in this session;
+PR creation is not a cleanup boundary. If the user wants a quick overview of
+all retained workspaces or safe deletion of merged-PR worktrees, point them to
+
+```bash
+implementation-workspace list
+implementation-workspace cleanup            # dry-run report by default
+implementation-workspace cleanup --dry-run false
+```
+
+The cleanup operation decides from authoritative GitHub pull-request state and
+never deletes ambiguous, dirty, open-PR, or lacking-PR-metadata workspaces.

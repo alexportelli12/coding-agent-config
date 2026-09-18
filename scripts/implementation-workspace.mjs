@@ -4,7 +4,9 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   access,
+  copyFile,
   mkdir,
+  readdir,
   readFile,
   realpath,
   rename,
@@ -120,13 +122,14 @@ async function currentBranch(root) {
   return cleanOutput(result);
 }
 
-async function assertClean(root, label) {
+async function assertClean(root, label, recoveryHint) {
   const result = await git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
   if (result.stdout.length > 0) {
     const readable = cleanOutput(await git(root, ["status", "--short", "--untracked-files=all"]));
+    const details = recoveryHint ? `${readable}\n\n${recoveryHint}` : readable || "Git reported a non-clean worktree.";
     throw new WorkspaceError(
       `${label} contains uncommitted or untracked work`,
-      readable || "Git reported a non-clean worktree.",
+      details,
     );
   }
 }
@@ -348,11 +351,82 @@ async function readMetadata(gitDirectory) {
   try {
     return JSON.parse(await readFile(path.join(gitDirectory, METADATA_FILE), "utf8"));
   } catch (error) {
-    if (error.code === "ENOENT") {
-      throw new WorkspaceError("this worktree has no OpenCode implementation ownership metadata");
-    }
+    if (error.code === "ENOENT") return null;
     throw new WorkspaceError("implementation ownership metadata is invalid", error.message);
   }
+}
+
+async function linkedWorktreeDirectories(root) {
+  const result = await git(root, ["worktree", "list", "--porcelain"]);
+  const entries = [];
+  let currentPath = null;
+  for (const line of result.stdout.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      currentPath = line.slice("worktree ".length);
+    } else if (line === "" && currentPath) {
+      entries.push(currentPath);
+      currentPath = null;
+    }
+  }
+  if (currentPath) entries.push(currentPath);
+  return entries;
+}
+
+async function inspectImplementationWorktrees(root) {
+  const inspected = [];
+  for (const worktreePath of await linkedWorktreeDirectories(root)) {
+    const entry = { worktreePath, root };
+    let gitDirectory;
+    try {
+      gitDirectory = await canonicalPath(cleanOutput(
+        await git(worktreePath, ["rev-parse", "--absolute-git-dir"]),
+      ));
+      const existing = await pathExists(worktreePath);
+      entry.gitDirectory = gitDirectory;
+      entry.worktreeExists = existing;
+      const metadata = await readMetadata(gitDirectory);
+      if (metadata) {
+        entry.metadata = metadata;
+        entry.branch = metadata.branch;
+      }
+    } catch (error) {
+      entry.error = error.message;
+    }
+    inspected.push(entry);
+  }
+  return inspected;
+}
+
+const ENV_FILE_PREFIX = ".env";
+
+async function controlEnvCandidates(controlRoot) {
+  const entries = await readdir(controlRoot, { withFileTypes: true });
+  const candidates = [];
+  for (const entry of entries.filter(
+    (candidate) => candidate.isFile() && candidate.name.startsWith(ENV_FILE_PREFIX),
+  ).map((candidate) => candidate.name).sort()) {
+    const ignored = await git(controlRoot, ["check-ignore", "--quiet", entry], {
+      allowedExitCodes: [0, 1],
+    });
+    if (ignored.code !== 0) continue;
+    const tracked = await git(controlRoot, ["ls-files", "--error-unmatch", entry], {
+      allowedExitCodes: [0, 1],
+    });
+    if (tracked.code === 0) continue;
+    candidates.push(entry);
+  }
+  return candidates;
+}
+
+async function provisionEnvFiles(controlRoot, worktreePath) {
+  const provisioned = [];
+  for (const name of await controlEnvCandidates(controlRoot)) {
+    const destination = path.join(worktreePath, name);
+    if (await pathExists(destination)) continue;
+    await copyFile(path.join(controlRoot, name), destination);
+    provisioned.push(name);
+  }
+  return provisioned;
 }
 
 async function allocateWorkspace(repository, root, pushUrl, slug, prefix, baseSha) {
@@ -399,7 +473,14 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "op
   }
 
   return withRepositoryLock(repository.commonDirectory, async () => {
-    await assertClean(repository.root, "the control worktree");
+    const controlCleanHint = [
+      "If the listed files are transient workflow artifacts (rendered-inspection",
+      "screenshots, analysis or report documents, temporary evidence), move them to a",
+      "temporary directory outside the control checkout, or into the affected",
+      "implementation worktree, before retrying. Review before removing anything;",
+      "do not delete untracked work you did not create.",
+    ].join("\n");
+    await assertClean(repository.root, "the control worktree", controlCleanHint);
     await assertNoGitOperation(repository);
     const branch = await currentBranch(repository.root);
     const remote = await configuredRemote(repository.root, branch);
@@ -430,7 +511,7 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "op
     }
     const [pushUrl] = pushUrls;
     const latestDefaultSha = await fetchBranch(repository.root, remote, defaultBranch);
-    await assertClean(repository.root, "the control worktree");
+    await assertClean(repository.root, "the control worktree", controlCleanHint);
     if (await isAncestor(repository.root, branch, latestDefaultSha)) {
       const localSha = cleanOutput(await git(repository.root, ["rev-parse", "HEAD"]));
       if (localSha !== latestDefaultSha) {
@@ -471,6 +552,7 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "op
         baseSha,
       ]);
       const implementationRepository = await repositoryAt(allocation.worktreePath);
+      const provisionedEnv = await provisionEnvFiles(repository.root, allocation.worktreePath);
       const now = new Date().toISOString();
       const metadata = {
         version: 1,
@@ -503,6 +585,7 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "op
         remote: metadata.remote,
         defaultBranch: metadata.defaultBranch,
         baseSha: metadata.baseSha,
+        provisionedEnv,
       };
     } catch (error) {
       await rollbackAllocatedWorkspace(repository.root, allocation, baseSha);
@@ -514,11 +597,59 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "op
 async function ownedSession(cwd, sessionId) {
   if (!sessionId) throw new WorkspaceError("the operation requires --session <session-id>");
   const repository = await repositoryAt(cwd);
-  if (repository.gitDirectory === repository.commonDirectory) {
-    throw new WorkspaceError("this operation must run from its isolated implementation worktree");
+  const inspected = await inspectImplementationWorktrees(repository.commonDirectory);
+
+  const cwdIsLinkedImplementationWorktree = repository.gitDirectory !== repository.commonDirectory
+    && inspected.some((entry) => entry.worktreeExists && entry.gitDirectory === repository.gitDirectory);
+
+  if (cwdIsLinkedImplementationWorktree) {
+    const here = inspected.find((entry) =>
+      entry.worktreeExists && entry.gitDirectory === repository.gitDirectory
+    );
+    if (!here?.metadata) {
+      throw new WorkspaceError("this worktree has no OpenCode implementation ownership metadata");
+    }
+    if (here.metadata.sessionId !== sessionId) {
+      throw new WorkspaceError("the session token does not own this implementation worktree");
+    }
   }
-  const metadata = await readMetadata(repository.gitDirectory);
-  if (metadata.version !== 1 || metadata.sessionId !== sessionId) {
+
+  const owned = inspected.filter(
+    (entry) => entry.metadata?.sessionId === sessionId
+      && entry.metadata?.commonDirectory === repository.commonDirectory,
+  );
+  if (owned.length === 0) {
+    throw new WorkspaceError(
+      "no implementation worktree for this session exists in this repository",
+      `Session: ${sessionId}. Run lifecycle operations from the repository or its worktrees.`,
+    );
+  }
+  if (owned.length > 1) {
+    throw new WorkspaceError(
+      `session ${sessionId} owns more than one repository worktree; ownership is ambiguous`,
+      "Manually inspect the implementation worktrees before further lifecycle operations.",
+    );
+  }
+
+  const { worktreePath, gitDirectory, metadata } = owned[0];
+  if (!metadata.worktreePath || metadata.worktreePath !== worktreePath) {
+    throw new WorkspaceError(
+      "implementation ownership metadata does not path-match this worktree",
+      `Metadata: ${metadata.worktreePath || "none"}; worktree: ${worktreePath}`,
+    );
+  }
+  if (!await pathExists(worktreePath)) {
+    throw new WorkspaceError(
+      "the owned implementation worktree is missing on disk",
+      `Recorded path: ${worktreePath}`,
+    );
+  }
+  const repositoryAtOwner = await repositoryAt(worktreePath);
+  if (repositoryAtOwner.gitDirectory !== gitDirectory
+    || repositoryAtOwner.commonDirectory !== repository.commonDirectory) {
+    throw new WorkspaceError("implementation ownership metadata does not match this worktree");
+  }
+  if (metadata.version !== 1) {
     throw new WorkspaceError("the session token does not own this implementation worktree");
   }
   if (metadata.pendingOperation) {
@@ -527,20 +658,20 @@ async function ownedSession(cwd, sessionId) {
       "Inspect the retained worktree and remote state; automatic recovery would require guessing.",
     );
   }
-  if (metadata.worktreePath !== repository.root || metadata.commonDirectory !== repository.commonDirectory) {
+  if (metadata.worktreePath !== repositoryAtOwner.root || metadata.commonDirectory !== repository.commonDirectory) {
     throw new WorkspaceError("implementation ownership metadata does not match this worktree");
   }
   if (metadata.branch === metadata.defaultBranch) {
     throw new WorkspaceError("the owned implementation branch cannot be the default branch");
   }
-  const branch = await currentBranch(repository.root);
+  const branch = await currentBranch(repositoryAtOwner.root);
   if (branch !== metadata.branch) {
     throw new WorkspaceError(
       "the implementation worktree is on an unexpected branch",
       `Expected ${metadata.branch}; found ${branch}`,
     );
   }
-  return { repository, metadata };
+  return { repository: repositoryAtOwner, metadata };
 }
 
 async function validateRemote(session) {
@@ -929,6 +1060,170 @@ export async function markPullRequest({ cwd = process.cwd(), sessionId, url }) {
   });
 }
 
+function workspaceSummary(entry) {
+  const { metadata } = entry;
+  if (!metadata) return null;
+  return {
+    sessionId: metadata.sessionId,
+    worktreePath: metadata.worktreePath,
+    branch: metadata.branch,
+    state: metadata.state,
+    prUrl: metadata.prUrl,
+    defaultBranch: metadata.defaultBranch,
+    baseSha: metadata.baseSha,
+    publishedSha: metadata.publishedSha,
+    evidenceTreeSha: metadata.evidenceTreeSha,
+    evidenceRecordedAt: metadata.evidenceRecordedAt,
+    createdAt: metadata.createdAt,
+    updatedAt: metadata.updatedAt,
+  };
+}
+
+export async function listWorkspaces({ cwd = process.cwd() }) {
+  const repository = await repositoryAt(cwd);
+  const inspected = await inspectImplementationWorktrees(repository.commonDirectory);
+  return {
+    operation: "list",
+    workspaces: inspected
+      .filter((entry) => entry.metadata)
+      .map((entry) => workspaceSummary(entry)),
+  };
+}
+
+export async function workspaceInfo({ cwd = process.cwd(), sessionId }) {
+  if (!sessionId) throw new WorkspaceError("info requires --session <session-id>");
+  const repository = await repositoryAt(cwd);
+  const inspected = await inspectImplementationWorktrees(repository.commonDirectory);
+  const owned = inspected.filter(
+    (entry) => entry.metadata?.sessionId === sessionId
+      && entry.metadata?.commonDirectory === repository.commonDirectory,
+  );
+  if (owned.length === 0) {
+    throw new WorkspaceError(
+      "no implementation worktree for this session exists in this repository",
+      `Session: ${sessionId}`,
+    );
+  }
+  if (owned.length > 1) {
+    throw new WorkspaceError(
+      `session ${sessionId} owns more than one repository worktree; ownership is ambiguous`,
+    );
+  }
+  return {
+    operation: "info",
+    ...workspaceSummary(owned[0]),
+  };
+}
+const PR_OPEN_STATES = new Set(["OPEN", "MERGED", "CLOSED"]);
+
+async function pullRequestState(root, prUrl) {
+  try {
+    const result = await run(
+      "gh",
+      ["pr", "view", prUrl, "--json", "state"],
+      { cwd: root },
+    );
+    let parsed;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch {
+      return { state: null, diagnostic: `unexpected gh output: ${cleanOutput(result)}` };
+    }
+    if (!parsed || typeof parsed.state !== "string" || !PR_OPEN_STATES.has(parsed.state)) {
+      return { state: null, diagnostic: `unexpected gh output: ${result.stdout.trim()}` };
+    }
+    return { state: parsed.state, diagnostic: null };
+  } catch (error) {
+    return { state: null, diagnostic: error.message };
+  }
+}
+
+async function currentInvocationWorktree() {
+  const invocationRoot = await canonicalPath(process.cwd());
+  const repository = await repositoryAt(invocationRoot);
+  return { invocationRoot, gitDirectory: repository.gitDirectory };
+}
+
+async function cleanupStatus(entry, activeGitDirectory, repositoryRoot) {
+  const base = { worktreePath: entry.worktreePath };
+  if (!entry.worktreeExists) {
+    return { ...base, decision: "protect", reason: `worktree path is inaccessible: ${entry.error || "missing directory"}` };
+  }
+  if (!entry.metadata) {
+    return { ...base, decision: "protect", reason: "not an owned implementation worktree" };
+  }
+  const metadata = entry.metadata;
+  const summary = workspaceSummary(entry);
+  if (entry.gitDirectory === activeGitDirectory) {
+    return { ...base, summary, decision: "protect", reason: "this cleanup invocation runs from this worktree" };
+  }
+  if (metadata.pendingOperation) {
+    return { ...base, summary, decision: "protect", reason: `incomplete ${metadata.pendingOperation.type} lifecycle operation` };
+  }
+  const statusResult = await git(entry.worktreePath, ["status", "--porcelain=v1", "--untracked-files=all"], {
+    allowedExitCodes: [0, 1, 128],
+  });
+  if (statusResult.code !== 0) {
+    return { ...base, summary, decision: "protect", reason: `could not inspect worktree state: ${cleanOutput(statusResult) || statusResult.stderr.trim()}` };
+  }
+  if (statusResult.stdout.length > 0) {
+    return { ...base, summary, decision: "protect", reason: "contains uncommitted or untracked work" };
+  }
+  if (!metadata.prUrl) {
+    return { ...base, summary, decision: "protect", reason: "no recorded pull request" };
+  }
+  const { state, diagnostic } = await pullRequestState(repositoryRoot, metadata.prUrl);
+  if (!state) {
+    return { ...base, summary, decision: "protect", reason: `could not determine pull request state: ${diagnostic}` };
+  }
+  if (state === "OPEN") {
+    return { ...base, summary, decision: "protect", reason: "pull request is open" };
+  }
+  return { ...base, summary, decision: "remove", reason: `pull request ${state.toLowerCase()}`, prState: state };
+}
+
+export async function cleanupWorkspaces({ cwd = process.cwd(), dryRun = true }) {
+  const repository = await repositoryAt(cwd);
+  return withRepositoryLock(repository.commonDirectory, async () => {
+    const { gitDirectory: activeGitDirectory } = await currentInvocationWorktree();
+    const inspected = await inspectImplementationWorktrees(repository.commonDirectory);
+    const statuses = [];
+    for (const entry of inspected) {
+      statuses.push(await cleanupStatus(entry, activeGitDirectory, repository.root));
+    }
+
+    const deletable = statuses.filter((status) => status.decision === "remove");
+    if (!dryRun) {
+      for (const status of deletable) {
+        await git(repository.root, ["worktree", "unlock", status.worktreePath], {
+          allowedExitCodes: [0, 128],
+        });
+        await git(repository.root, ["worktree", "remove", status.worktreePath]);
+        status.removed = true;
+        const branch = status.summary?.branch;
+        if (branch) {
+          const branchDelete = await git(repository.root, ["branch", "-d", branch], {
+            allowedExitCodes: [0, 1],
+          });
+          if (branchDelete.code === 0) {
+            status.branchDeleted = true;
+          } else {
+            status.branchRetained = true;
+            status.branchDiagnostic = branchDelete.stderr.trim();
+          }
+        }
+      }
+    }
+    return {
+      operation: "cleanup",
+      dryRun,
+      removedCount: dryRun ? 0 : deletable.length,
+      results: statuses,
+    };
+  });
+}
+
+
 function parseOptions(args) {
   const [operation, ...rest] = args;
   const options = {};
@@ -957,9 +1252,15 @@ export async function main(args = process.argv.slice(2)) {
       result = await recordEvidence({ sessionId: options.session });
     } else if (operation === "mark-pr") {
       result = await markPullRequest({ sessionId: options.session, url: options.url });
+    } else if (operation === "info") {
+      result = await workspaceInfo({ sessionId: options.session });
+    } else if (operation === "list") {
+      result = await listWorkspaces({});
+    } else if (operation === "cleanup") {
+      result = await cleanupWorkspaces({ dryRun: options["dry-run"] !== "false" });
     } else {
       throw new WorkspaceError(
-        "expected prepare, sync, record-evidence, publish, or mark-pr",
+        "expected prepare, sync, record-evidence, publish, mark-pr, info, list, or cleanup",
         "Usage: implementation-workspace prepare --slug <name> [--prefix <prefix>]",
       );
     }
