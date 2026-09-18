@@ -306,5 +306,7 @@ implementation-workspace cleanup            # dry-run report by default
 implementation-workspace cleanup --dry-run false
 ```
 
-The cleanup operation decides from authoritative GitHub pull-request state and
-never deletes ambiguous, dirty, open-PR, or lacking-PR-metadata workspaces.
+The cleanup operation decides from authoritative GitHub pull-request state plus
+deterministic Git evidence that the branch history is consumed by the remote
+default branch, and never deletes ambiguous, dirty, open-PR,
+lacking-PR-metadata, or unconsumed-history workspaces.

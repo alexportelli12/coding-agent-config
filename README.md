@@ -100,7 +100,7 @@ implementation-workspace cleanup --dry-run false  # actually remove safe ones
 
 `prepare` copies gitignored local env files (`.env*`) from the control checkout into each fresh worktree — never overwriting existing files and reporting exactly what it provisioned — so repositories that need machine-local environment configuration verify without manual copying. Transient evidence such as rendered-inspection screenshots or analysis documents is written to a temporary directory inside the owned worktree or a system temporary directory, never into the control checkout.
 
-`cleanup` deletes retained worktrees only when the recorded pull request is merged or closed on GitHub, the worktree is clean, it is not the invoking session's workspace, and its recorded history is safely consumed. Open pull requests, missing pull-request metadata, dirty worktrees, in-flight operations, and undeterminable pull-request state are always protected, and the local branch is deleted only when Git itself accepts a safe `branch -d`.
+`cleanup` deletes retained worktrees only when it can deterministically establish that removing the worktree cannot discard the only useful representation of the implementation history. GitHub state (`gh pr view`) must report the recorded pull request merged or closed, and Git evidence must confirm consumption: the branch head (or the PR's recorded merge commit, for squash merges) must be contained in a freshly fetched remote default branch. Open pull requests, missing pull-request metadata, dirty worktrees, the invoking worktree, in-flight operations, and any state that cannot be proven with Git evidence are always protected, and the local branch is deleted only when Git itself accepts a safe `branch -d`.
 
 ## Verification
 

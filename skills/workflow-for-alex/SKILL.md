@@ -172,7 +172,9 @@ remain there. The tool must fail closed rather than stash user state, reuse an
 ambiguously owned worktree, rewrite shared history, or guess through conflicts.
 Retain the workspace after pull-request creation so the owning session can make
 follow-up changes; PR-state-driven cleanup decides from authoritative GitHub
-state and protects open, dirty, or metadata-less workspaces.
+state plus deterministic Git evidence that the implementation history is
+consumed by the remote default branch, protecting open, dirty, metadata-less,
+or unproven workspaces fail-closed.
 
 Transient evidence is not deliverable work: screenshots, rendered-inspection
 output, analysis documents, and temporary reports are written to a temporary

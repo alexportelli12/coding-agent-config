@@ -561,22 +561,48 @@ test("info and list expose retained workspace summaries", async (t) => {
   assert.ok(list.json.workspaces.every((workspace) => workspace.worktreePath && workspace.branch));
 });
 
-async function ghStubPath(t) {
+async function ghStub(t) {
   const stubDirectory = await mkdtemp(path.join(os.tmpdir(), "implementation-workspace-gh-"));
   t.after(() => rm(stubDirectory, { recursive: true, force: true }));
   const stub = path.join(stubDirectory, "gh");
   await writeFile(stub, `#!/bin/sh
-if [ -z "\${GH_STUB_STATE}" ]; then
-  echo "gh: state not configured" >&2
+pr=""
+for arg in "$@"; do
+  case "$arg" in */pull/*) pr="\${arg##*/pull/}";; esac
+done
+case "$pr" in ""|*[!0-9]*)
+  echo "gh: unresolvable pull request from arguments" >&2
+  exit 1
+;; esac
+if [ ! -f "\${GH_STUB_DIR}/\${pr}" ]; then
+  echo "gh: state not configured for pr \${pr}" >&2
   exit 1
 fi
-echo "{\\"state\\": \\"\${GH_STUB_STATE}\\"}"
+state="\$(cat "\${GH_STUB_DIR}/\${pr}")"
+if [ "$state" = "MERGED" ] && [ -f "\${GH_STUB_DIR}/\${pr}.merge" ]; then
+  mergeOid="\$(cat "\${GH_STUB_DIR}/\${pr}.merge")"
+  printf '{"state":"MERGED","mergeCommit":{"oid":"%s"}}\\n' "$mergeOid"
+  exit 0
+fi
+printf '{"state":"%s"}\\n' "$state"
 `, "utf8");
   await chmod(stub, 493);
-  return `${stubDirectory}:${process.env.PATH ?? ""}`;
+  return stubDirectory;
 }
 
-async function publishAndMark(fixture, prepared, content = "feature\n") {
+function ghEnv(stubDirectory) {
+  return { PATH: `${stubDirectory}:${process.env.PATH ?? ""}`, GH_STUB_DIR: stubDirectory };
+}
+
+async function setGhState(stubDirectory, prNumber, state) {
+  await writeFile(path.join(stubDirectory, String(prNumber)), state);
+}
+
+async function setGhMergeCommit(stubDirectory, prNumber, sha) {
+  await writeFile(path.join(stubDirectory, `${prNumber}.merge`), sha);
+}
+
+async function publishAndMark(fixture, prepared, content = "feature\n", prNumber = 7) {
   await commit(prepared.json.worktreePath, "feature.txt", content, "feature");
   await recordEvidence(fixture, prepared);
   const published = await lifecycle(
@@ -590,7 +616,7 @@ async function publishAndMark(fixture, prepared, content = "feature\n") {
     fixture,
     prepared.json.worktreePath,
     "mark-pr",
-    { session: prepared.json.sessionId, url: "https://example.test/pull/7" },
+    { session: prepared.json.sessionId, url: `https://example.test/pull/${prNumber}` },
   );
 }
 
@@ -601,15 +627,16 @@ async function pretendMerged(fixture, prepared) {
   await git(fixture.control, "pull", "--quiet", "--ff-only");
 }
 
-test("cleanup protects ambiguous state and reports without touching worktrees", async (t) => {
+test("cleanup protects closed, dirty, and no-PR worktrees without touching them", async (t) => {
   const fixture = await withEnvGitignore(t);
-  const stubPath = await ghStubPath(t);
-  const first = await lifecycle(fixture, fixture.control, "prepare", { slug: "protect open" });
+  const stub = await ghStub(t);
+  const first = await lifecycle(fixture, fixture.control, "prepare", { slug: "protect closed" });
   await publishAndMark(fixture, first);
   const second = await lifecycle(fixture, fixture.control, "prepare", { slug: "protect dirty" });
   await publishAndMark(fixture, second);
   await writeFile(path.join(second.json.worktreePath, "feature.txt"), "unfinished\n");
   const third = await lifecycle(fixture, fixture.control, "prepare", { slug: "protect no pr" });
+  await setGhState(stub, 7, "CLOSED");
 
   const result = await lifecycle(
     fixture,
@@ -617,30 +644,30 @@ test("cleanup protects ambiguous state and reports without touching worktrees", 
     "cleanup",
     { "dry-run": "false" },
     [0],
-    { PATH: stubPath, GH_STUB_STATE: "CLOSED" },
+    ghEnv(stub),
   );
   assert.equal(result.json.operation, "cleanup");
   const byPath = new Map(result.json.results.map((row) => [row.worktreePath, row]));
-  const firstMark = byPath.get(first.json.worktreePath);
-  assert.equal(firstMark.decision, "remove");
-  assert.equal(firstMark.removed, true);
-  assert.equal(firstMark.branchRetained, true);
+  const closed = byPath.get(first.json.worktreePath);
+  assert.equal(closed.decision, "protect");
+  assert.match(closed.reason, /closed but its history could not be established as consumed/);
   assert.equal(byPath.get(second.json.worktreePath).decision, "protect");
   assert.match(byPath.get(second.json.worktreePath).reason, /uncommitted or untracked work/);
   assert.equal(byPath.get(third.json.worktreePath).decision, "protect");
   assert.match(byPath.get(third.json.worktreePath).reason, /no recorded pull request/);
-  const forbiddenSurvivors = [second.json.worktreePath, third.json.worktreePath];
-  for (const survivor of forbiddenSurvivors) {
-    assert.equal(await pathExists(survivor), true);
+  assert.equal(result.json.removedCount, 0);
+  for (const survivor of [first, second, third]) {
+    assert.equal(await pathExists(survivor.json.worktreePath), true);
   }
 });
 
 test("cleanup dry-run reports decisions without removing anything", async (t) => {
   const fixture = await withEnvGitignore(t);
-  const stubPath = await ghStubPath(t);
+  const stub = await ghStub(t);
   const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "dry run" });
   await publishAndMark(fixture, prepared);
   await pretendMerged(fixture, prepared);
+  await setGhState(stub, 7, "MERGED");
 
   const dryRun = await lifecycle(
     fixture,
@@ -648,13 +675,14 @@ test("cleanup dry-run reports decisions without removing anything", async (t) =>
     "cleanup",
     { "dry-run": "true" },
     [0],
-    { PATH: stubPath, GH_STUB_STATE: "MERGED" },
+    ghEnv(stub),
   );
   assert.equal(dryRun.json.dryRun, true);
   assert.equal(dryRun.json.removedCount, 0);
   const dryRow = dryRun.json.results.find((row) => row.worktreePath === prepared.json.worktreePath);
   assert.equal(dryRow.decision, "remove");
   assert.equal(dryRow.prState, "MERGED");
+  assert.match(dryRow.reason, /confirmed consumed/);
   assert.equal(await pathExists(prepared.json.worktreePath), true);
   assert.ok((await run("git", ["branch", "--list", prepared.json.branch], { cwd: fixture.control })).stdout.includes(prepared.json.branch));
 
@@ -664,22 +692,24 @@ test("cleanup dry-run reports decisions without removing anything", async (t) =>
     "cleanup",
     { "dry-run": "false" },
     [0],
-    { PATH: stubPath, GH_STUB_STATE: "MERGED" },
+    ghEnv(stub),
   );
   assert.equal(removed.json.removedCount, 1);
   assert.equal(await pathExists(prepared.json.worktreePath), false);
   assert.ok(!(await run("git", ["branch", "--list", prepared.json.branch], { cwd: fixture.control })).stdout.includes(prepared.json.branch));
 });
 
-test("cleanup removes a worktree for a merged PR but keeps an unverifiable branch", async (t) => {
+test("cleanup removes a merged-PR worktree and protects a closed unmerged one", async (t) => {
   const fixture = await withEnvGitignore(t);
-  const stubPath = await ghStubPath(t);
+  const stub = await ghStub(t);
   const mergedScenario = await lifecycle(fixture, fixture.control, "prepare", { slug: "merged branch" });
-  await publishAndMark(fixture, mergedScenario, "merged feature\n");
+  await publishAndMark(fixture, mergedScenario, "merged feature\n", 1);
   await pretendMerged(fixture, mergedScenario);
+  await setGhState(stub, 1, "MERGED");
 
-  const closedOnly = await lifecycle(fixture, fixture.control, "prepare", { slug: "closed branch" });
-  await publishAndMark(fixture, closedOnly, "closed feature\n");
+  const closedScenario = await lifecycle(fixture, fixture.control, "prepare", { slug: "closed branch" });
+  await publishAndMark(fixture, closedScenario, "closed feature\n", 2);
+  await setGhState(stub, 2, "CLOSED");
 
   const result = await lifecycle(
     fixture,
@@ -687,19 +717,75 @@ test("cleanup removes a worktree for a merged PR but keeps an unverifiable branc
     "cleanup",
     { "dry-run": "false" },
     [0],
-    { PATH: stubPath, GH_STUB_STATE: "MERGED" },
+    ghEnv(stub),
   );
   const byPath = new Map(result.json.results.map((row) => [row.worktreePath, row]));
-  assert.equal(byPath.get(mergedScenario.json.worktreePath).branchDeleted, true);
-  const closed = byPath.get(closedOnly.json.worktreePath);
-  assert.equal(closed.decision, "remove");
-  assert.equal(closed.removed, true);
-  assert.equal(closed.branchRetained, true);
+  const merged = byPath.get(mergedScenario.json.worktreePath);
+  assert.equal(merged.decision, "remove");
+  assert.equal(merged.removed, true);
+  assert.equal(merged.branchDeleted, true);
+  const closed = byPath.get(closedScenario.json.worktreePath);
+  assert.equal(closed.decision, "protect");
+  assert.match(closed.reason, /not contained in the remote default branch/);
+  assert.equal(await pathExists(closedScenario.json.worktreePath), true);
+  assert.ok((await run("git", ["branch", "--list", closedScenario.json.branch], { cwd: fixture.control })).stdout.includes(closedScenario.json.branch));
+});
+
+test("cleanup removes a squash-merged PR worktree through the recorded merge commit", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const stub = await ghStub(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "squash merge" });
+  await publishAndMark(fixture, prepared);
+
+  await git(fixture.seed, "fetch", "--quiet", "origin", prepared.json.branch);
+  await git(fixture.seed, "merge", "--squash", `origin/${prepared.json.branch}`);
+  await git(fixture.seed, "commit", "--quiet", "-m", "squash feature");
+  await git(fixture.seed, "push", "--quiet", "origin", "trunk");
+  await git(fixture.control, "pull", "--quiet", "--ff-only");
+  const squashSha = (await git(fixture.seed, "rev-parse", "HEAD")).stdout.trim();
+  await setGhState(stub, 7, "MERGED");
+  await setGhMergeCommit(stub, 7, squashSha);
+
+  const result = await lifecycle(
+    fixture,
+    fixture.control,
+    "cleanup",
+    { "dry-run": "false" },
+    [0],
+    ghEnv(stub),
+  );
+  const row = result.json.results.find((candidate) => candidate.worktreePath === prepared.json.worktreePath);
+  assert.equal(row.decision, "remove");
+  assert.equal(row.removed, true);
+  assert.equal(row.branchRetained, true);
+  assert.equal(row.branchDeleted, undefined);
+  assert.equal(await pathExists(prepared.json.worktreePath), false);
+});
+
+test("cleanup protects a merged PR whose consumption cannot be proven from Git", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const stub = await ghStub(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "unprovable merge" });
+  await publishAndMark(fixture, prepared);
+  await setGhState(stub, 7, "MERGED");
+
+  const result = await lifecycle(
+    fixture,
+    fixture.control,
+    "cleanup",
+    { "dry-run": "false" },
+    [0],
+    ghEnv(stub),
+  );
+  const row = result.json.results.find((candidate) => candidate.worktreePath === prepared.json.worktreePath);
+  assert.equal(row.decision, "protect");
+  assert.match(row.reason, /could not be established as consumed/);
+  assert.equal(await pathExists(prepared.json.worktreePath), true);
 });
 
 test("cleanup protects the worktree it is invoked from and undeterminable pull-request state", async (t) => {
   const fixture = await withEnvGitignore(t);
-  const stubPath = await ghStubPath(t);
+  const stub = await ghStub(t);
   const active = await lifecycle(fixture, fixture.control, "prepare", { slug: "active from here" });
   await publishAndMark(fixture, active);
   await pretendMerged(fixture, active);
@@ -710,7 +796,7 @@ test("cleanup protects the worktree it is invoked from and undeterminable pull-r
     "cleanup",
     { "dry-run": "false" },
     [0],
-    { PATH: stubPath },
+    ghEnv(stub),
   );
   const row = result.json.results.find((candidate) => candidate.worktreePath === active.json.worktreePath);
   assert.equal(row.decision, "protect");

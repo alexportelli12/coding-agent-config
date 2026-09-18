@@ -1120,22 +1120,53 @@ async function pullRequestState(root, prUrl) {
   try {
     const result = await run(
       "gh",
-      ["pr", "view", prUrl, "--json", "state"],
+      ["pr", "view", prUrl, "--json", "state,mergeCommit"],
       { cwd: root },
     );
     let parsed;
     try {
       parsed = JSON.parse(result.stdout);
     } catch {
-      return { state: null, diagnostic: `unexpected gh output: ${cleanOutput(result)}` };
+      return { state: null, mergeCommit: null, diagnostic: `unexpected gh output: ${cleanOutput(result)}` };
     }
-    if (!parsed || typeof parsed.state !== "string" || !PR_OPEN_STATES.has(parsed.state)) {
-      return { state: null, diagnostic: `unexpected gh output: ${result.stdout.trim()}` };
+    const state = typeof parsed?.state === "string" && PR_OPEN_STATES.has(parsed.state)
+      ? parsed.state
+      : null;
+    const mergeCommit = parsed?.mergeCommit
+      && typeof parsed.mergeCommit.oid === "string"
+      && /^[0-9a-f]+$/i.test(parsed.mergeCommit.oid)
+      ? parsed.mergeCommit.oid
+      : null;
+    if (!state) {
+      return { state: null, mergeCommit, diagnostic: `unexpected gh output: ${result.stdout.trim()}` };
     }
-    return { state: parsed.state, diagnostic: null };
+    return { state, mergeCommit, diagnostic: null };
   } catch (error) {
-    return { state: null, diagnostic: error.message };
+    return { state: null, mergeCommit: null, diagnostic: error.message };
   }
+}
+
+async function verifyBranchConsumed(root, metadata, candidateSha) {
+  if (!await refExists(root, `refs/heads/${metadata.branch}`)) {
+    return { established: false, diagnostic: "the recorded branch no longer exists locally; restore it or remove the workspace manually" };
+  }
+  let latestDefaultSha;
+  try {
+    latestDefaultSha = await fetchBranch(root, metadata.fetchUrl, metadata.defaultBranch);
+  } catch (error) {
+    return { established: false, diagnostic: `could not fetch the remote default branch: ${error.message}` };
+  }
+  try {
+    if (await isAncestor(root, candidateSha, latestDefaultSha)) {
+      return { established: true, diagnostic: null };
+    }
+  } catch (error) {
+    return { established: false, diagnostic: `Git rejected the consumption evidence: ${error.message}` };
+  }
+  return {
+    established: false,
+    diagnostic: "the branch history is not contained in the remote default branch",
+  };
 }
 
 async function currentInvocationWorktree() {
@@ -1172,14 +1203,32 @@ async function cleanupStatus(entry, activeGitDirectory, repositoryRoot) {
   if (!metadata.prUrl) {
     return { ...base, summary, decision: "protect", reason: "no recorded pull request" };
   }
-  const { state, diagnostic } = await pullRequestState(repositoryRoot, metadata.prUrl);
+
+  const { state, mergeCommit, diagnostic } = await pullRequestState(repositoryRoot, metadata.prUrl);
   if (!state) {
     return { ...base, summary, decision: "protect", reason: `could not determine pull request state: ${diagnostic}` };
   }
   if (state === "OPEN") {
     return { ...base, summary, decision: "protect", reason: "pull request is open" };
   }
-  return { ...base, summary, decision: "remove", reason: `pull request ${state.toLowerCase()}`, prState: state };
+
+  // Only remove the worktree once Git evidence establishes that removing it
+  // cannot discard the only useful representation of the implementation
+  // history: the branch (for closed PRs) or its verified merge commit
+  // (for merged PRs, including squash merges) must be contained in a
+  // freshly fetched remote default branch.
+  let branchHead;
+  try {
+    branchHead = cleanOutput(await git(entry.worktreePath, ["rev-parse", "HEAD"]));
+  } catch (error) {
+    return { ...base, summary, decision: "protect", reason: `could not resolve the worktree head: ${error.message}` };
+  }
+  const candidateSha = state === "MERGED" && mergeCommit ? mergeCommit : branchHead;
+  const consumption = await verifyBranchConsumed(repositoryRoot, metadata, candidateSha);
+  if (!consumption.established) {
+    return { ...base, summary, decision: "protect", reason: `pull request ${state.toLowerCase()} but its history could not be established as consumed: ${consumption.diagnostic}` };
+  }
+  return { ...base, summary, decision: "remove", reason: `pull request ${state.toLowerCase()} and its history is confirmed consumed by the remote default branch`, prState: state };
 }
 
 export async function cleanupWorkspaces({ cwd = process.cwd(), dryRun = true }) {
