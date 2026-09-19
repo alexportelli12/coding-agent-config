@@ -119,6 +119,18 @@ test("prepares independent worktrees from an up-to-date custom default branch", 
   assert.equal((await git(second.json.worktreePath, "branch", "--show-current")).stdout.trim(), second.json.branch);
 });
 
+test("uses readable slug names and numeric suffixes for repeated requests", async (t) => {
+  const fixture = await createFixture(t);
+  const first = await lifecycle(fixture, fixture.control, "prepare", { slug: "same change" });
+  const second = await lifecycle(fixture, fixture.control, "prepare", { slug: "same change" });
+
+  assert.equal(path.basename(first.json.worktreePath), "same-change");
+  assert.equal(first.json.branch, "opencode/same-change");
+  assert.equal(path.basename(second.json.worktreePath), "same-change-2");
+  assert.equal(second.json.branch, "opencode/same-change-2");
+  assert.notEqual(first.json.sessionId, second.json.sessionId);
+});
+
 test("fast-forwards a clean behind control branch before creating the worktree", async (t) => {
   const fixture = await createFixture(t);
   const latest = await advanceRemote(fixture);

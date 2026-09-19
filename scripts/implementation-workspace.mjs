@@ -429,13 +429,23 @@ async function provisionEnvFiles(controlRoot, worktreePath) {
   return provisioned;
 }
 
+function workspaceLeaf(slug, attempt) {
+  const base = sanitizeSegment(slug, "change");
+  if (attempt === 0) return base;
+
+  const suffix = `-${attempt + 1}`;
+  return `${base.slice(0, Math.max(1, 48 - suffix.length))}${suffix}`;
+}
+
 async function allocateWorkspace(repository, root, pushUrl, slug, prefix, baseSha) {
   const parent = workspaceRoot(repository);
   await mkdir(parent, { recursive: true });
+  const sessionId = randomBytes(12).toString("hex");
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const sessionId = randomBytes(12).toString("hex");
-    const leaf = `${sanitizeSegment(slug, "change")}-${sessionId.slice(0, 10)}`;
+    // The repository lock serializes allocation, so readable names can use a
+    // deterministic numeric suffix when a slug is already in use.
+    const leaf = workspaceLeaf(slug, attempt);
     const branch = `${sanitizePrefix(prefix || "opencode")}/${leaf}`;
     const worktreePath = path.join(parent, leaf);
     await git(root, ["check-ref-format", "--branch", branch]);
