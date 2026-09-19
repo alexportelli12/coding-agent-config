@@ -1,7 +1,7 @@
 ---
 description: Independently judge meaningful user-facing implementations for UI and UX quality after verification and rendered inspection
 mode: subagent
-model: opencode/gemini-3.5-flash
+model: opencode-go/kimi-k2.7-code
 permission:
   read: allow
   edit: deny

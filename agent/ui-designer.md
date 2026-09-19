@@ -1,7 +1,7 @@
 ---
 description: Design and implement repository-grounded UI with practical targeted rendered validation
 mode: subagent
-model: opencode/gemini-3.5-flash
+model: opencode-go/kimi-k2.7-code
 permission:
   skill: allow
 ---
