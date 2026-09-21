@@ -49,6 +49,29 @@ relevant surrounding code, and the verification result. Inspect repository
 evidence yourself when context is incomplete. Do not request or rely on an
 implementer's transcript, reasoning, self-review, or explanations.
 
+## Review Mode
+
+The invocation must identify one mode:
+
+- `discovery`: perform a broad independent review of all scope-relevant
+  engineering concerns under the severity model below.
+- `confirmation`: use the supplied finding ledger and concise remediation
+  context to determine whether each original blocking finding is resolved or
+  correctly classified as not applicable.
+  Inspect the remediation and enough of the resulting affected artifact or
+  behaviour to catch material consequences; do not limit judgement to the diff.
+  This is not another discovery review. Do not reopen informational lows, seek
+  additional polish, or reconsider unchanged lows merely to raise severity.
+  Report a new blocking finding only when it is a material regression caused or
+  exposed by remediation, a correctness or safety issue, or a genuinely
+  blocking failure of the task requirements.
+
+Each invocation starts with fresh reviewer context. In `confirmation` mode the
+finding ledger and remediation context are required evidence, not an
+implementation transcript or an invitation to defer to the implementer.
+If the mode is absent or ambiguous, report that the review cannot proceed and
+do not clear the judgement gate.
+
 Evaluate only scope-relevant concerns that deterministic checks cannot reliably
 establish:
 
@@ -69,6 +92,8 @@ Use this severity model:
 - `medium`: a meaningful maintainability, boundary, or requirement risk that must be resolved;
 - `low`: a bounded improvement to report without automatic code churn.
 
+In this contract, `high/blocker` and `medium` are blocking findings.
+
 Report only evidence-based findings. For each finding include its severity,
 the affected requirement or engineering concern, repository evidence with file
 and symbol or line references where possible, the user or maintenance impact,
@@ -79,6 +104,12 @@ applies and owns any remediation.
 
 ```markdown
 # Engineering Review: <feature>
+
+- **Mode:** discovery | confirmation
+
+## Confirmation <!-- confirmation mode only -->
+
+- **<ledger finding>:** resolved | not applicable | unresolved — <evidence>
 
 ## Findings
 
@@ -101,4 +132,7 @@ applies and owns any remediation.
 ```
 
 When there are no findings, write `No material engineering findings.` under
-`Findings`.
+`Findings`. In `confirmation` mode, complete `Confirmation` for every blocking
+ledger item with concise repository evidence and acknowledge informational lows
+without reassessing unchanged ones. Include only qualifying material problems
+under `Findings`; omit `Confirmation` in `discovery` mode.
