@@ -176,16 +176,17 @@ only when it materially improves confidence:
 
 - For substantial work with meaningful behavioural, architectural,
   integration, state-management, security, or maintainability consequence,
-  invoke `engineering-reviewer`.
+  invoke `engineering-reviewer` in `discovery` mode.
 - For meaningful user-facing work, perform the rendered/browser inspection
-  above first, then invoke `ui-reviewer` with fresh review context.
+  above first, then invoke `ui-reviewer` in `discovery` mode.
 
 Small or mechanical changes do not need engineering review merely because the
 agent exists. Do not invoke UI review for changes without meaningful user-facing
 impact.
 
-Reviewers receive only the original request, resolved task requirements and
-acceptance criteria from the active session, fresh repository evidence, relevant
+Every reviewer invocation must name its mode. In `discovery` mode, reviewers
+receive only the original request, resolved task requirements and acceptance
+criteria from the active session, fresh repository evidence, relevant
 implementation context, final diff, applicable rendered evidence, and the fact
 that `npm run verify` passed. Do not send implementation transcripts, reasoning,
 self-review, or explanations defending choices. Reviewers judge; they do not
@@ -193,9 +194,9 @@ implement. Never select a reviewer to fix its own findings.
 
 ## Review Remediation
 
-Investigate every finding with repository evidence. A finding may be resolved
-by a bounded fix or by establishing that it does not apply. Do not blindly
-accept subjective or out-of-scope findings.
+Investigate every discovery finding with repository evidence. A finding may be
+resolved by a bounded fix or by establishing that it does not apply. Do not
+blindly accept subjective or out-of-scope findings.
 
 Use this severity model:
 
@@ -203,19 +204,51 @@ Use this severity model:
 - `medium`: must be resolved;
 - `low`: report, but do not automatically churn code.
 
-For a valid high/blocker or medium finding, determine the fix and delegate to
-an implementation specialist only when specialist expertise materially helps.
-Never delegate it to the reviewer that raised it. If code changes, run
-`npm run verify` again before further judgement. Rerun only affected gates:
+Here, a blocking finding means an applicable `high/blocker` or `medium` finding.
+Keep a concise finding ledger in session context for every reviewed gate. Record
+each finding's original severity and disposition, the remediation for each
+blocking finding, and lows as informational. Do not create a repository artifact
+for the ledger, and do not promote or remediate a low finding without strong
+task-specific evidence.
 
-- engineering remediation: engineering review again;
-- UI remediation: rendered inspection and UI review again;
-- cross-cutting remediation: rerun both when both are materially affected.
+If discovery has no applicable `high/blocker` or `medium` findings, that gate is
+complete; retain any low findings for completion reporting.
 
-Allow at most two remediation passes per judgement gate. If meaningful
-high/blocker or medium findings remain after two passes, stop and involve the
-user. Low findings do not consume a pass unless the orchestrator or user
-explicitly chooses to address them.
+Investigate and batch all applicable blocking findings before returning to
+judgement. Delegate remediation to an implementation specialist only when its
+expertise materially helps, and never to the reviewer that raised the finding.
+If code changes, run `npm run verify` before further judgement. Then rerun only
+materially affected gates in `confirmation` mode:
+
+- engineering impact: engineering confirmation;
+- UI impact: rendered inspection and UI confirmation;
+- cross-cutting impact: both confirmations.
+
+Give each confirmation reviewer fresh context containing the original request
+and requirements, the gate's finding ledger, a concise remediation summary,
+the resulting diff and affected artifact or behaviour, current verification
+status, and applicable rendered evidence. Do not send implementation
+transcripts or advocacy. Confirmation must determine whether each original
+blocking finding is resolved and inspect enough of the remediated artifact or
+behaviour to detect material consequences. It is not another discovery review.
+
+A confirmation finding blocks completion only when it is an unresolved original
+blocking finding, a material regression caused or exposed by remediation, a
+correctness or safety issue, or a genuinely blocking failure of the task
+requirements. Do not reopen informational lows, seek additional polish, ask for
+additional blocking findings beyond the ledger and remediation consequences, or
+otherwise restart broad discovery.
+
+If the initial confirmation reports such a blocker, investigate it, add it and
+its disposition to the ledger, and perform exactly one batched exception
+remediation. Run `npm run verify` after code changes, refresh rendered evidence
+when UI is affected, and run one final `confirmation` for each materially
+affected gate against the updated ledger and remediation context. Do not start
+another discovery or ordinary remediation cycle. Any qualifying blocker
+reported at final confirmation, whether unresolved or newly identified, stops
+the workflow for the user with the finding and verification evidence. Low
+findings never initiate confirmation or exception remediation unless the user
+explicitly asks to address them.
 
 ## Follow-Up On An Existing Pull Request
 
@@ -252,8 +285,11 @@ completed with no unresolved `high/blocker` or `medium` findings.
    follow-up history without rewriting it.
 5. When synchronization reports `requiresRevalidation: true`, treat prior
    evidence as stale: rerun `npm run verify`, inspect the resulting diff, and
-   repeat rendered inspection or independent judgement only where the upstream
-   integration could materially affect that evidence. Commit any resulting
+   repeat rendered inspection or independent judgement in `confirmation` mode
+   only where the upstream integration could materially affect that evidence.
+   Use the integration diff as remediation context with the existing finding
+   ledger, and apply the same bounded confirmation, exception-remediation, and
+   final-confirmation rule without restarting discovery. Commit any resulting
    remediation as an intended additional commit using `commit-pr-writing`.
    Record evidence for the resulting committed tree, then synchronize again.
 6. Run `implementation-workspace publish --session "<sessionId>"`. It performs
