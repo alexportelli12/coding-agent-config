@@ -5,6 +5,7 @@ bun.lock
 .ruff_cache
 package-lock.json
 skills-lock.json
+skills/synced/
 
 # installed by herdr
 herdr-tui-session.js

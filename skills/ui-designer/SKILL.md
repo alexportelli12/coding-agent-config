@@ -61,7 +61,7 @@ Do not turn every UI task into a redesign. Small, low-risk consistency improveme
 - For type, readability, interface language, links, or messages, read [references/typography-and-copy.md](references/typography-and-copy.md).
 - For action hierarchy, labels, targets, disabled controls, or destructive actions, read [references/buttons-and-actions.md](references/buttons-and-actions.md).
 - For any form design or validation task, read [references/forms.md](references/forms.md) and use the relevant framework-specific form skill when available.
-- The independent `ui-reviewer` owns final UI judgement; it may read [references/ui-review.md](references/ui-review.md) for review-specific guidance.
+- The independent `code-reviewer` owns applicable UI judgement; it may read [references/ui-review.md](references/ui-review.md) for rendered review guidance.
 
 Do not load every reference by default.
 
@@ -73,8 +73,8 @@ where practical; source code and CSS values alone cannot establish visual result
 Write screenshots and inspection artifacts into a temporary directory inside
 the owned implementation worktree or a system temporary directory — never into
 the control checkout or the tracked tree.
-quality. This targeted inspection supports implementation and does not replace
-the orchestrator's final verification or the independent UI review.
+This targeted inspection supports implementation and does not replace
+the orchestrator's final verification or independent code review.
 
 Check the primary journey first, then relevant states and realistic content. Confirm that:
 
