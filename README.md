@@ -134,11 +134,11 @@ A test suite can tell me that something works. It can't reliably tell me that:
 * an interaction feels awkward; or
 * something technically correct is still a bad product decision.
 
-For meaningful changes, the workflow can therefore bring in one independent code reviewer using [OpenCodeReview](https://github.com/alibaba/open-code-review) for structured review findings.
+For meaningful changes, the workflow can therefore bring in one independent code reviewer using [OpenCodeReview Delegation Mode](https://github.com/alibaba/open-code-review/blob/main/pages/src/content/docs/en/integrations/delegate.md) for deterministic file selection and review rules.
 
 The reviewer doesn't edit code. It reviews the finished work with fresh task context, including UI/UX where relevant; the orchestrator triages findings and fixes justified issues. After fixes, one focused confirmation checks resolution and material regressions. Only a serious blocker permits one bounded exception cycle.
 
-The reviewer runs the `ocr` CLI in the isolated worktree with task context and JSON output. OCR runs its own review model; install and configure it separately before using this gate. Its [Delegation Mode](https://github.com/alibaba/open-code-review/blob/main/pages/src/content/docs/en/integrations/delegate.md) instead makes the host agent do the reviewing, so it is not used here. The CLI-based reviewer works in both OpenCode and Claude Code without depending on either host's OCR plugin.
+The reviewer runs `ocr delegate preview` and `ocr delegate rule` in the isolated worktree with task context and JSON output, then reviews the selected diffs itself using its OpenCode or Claude Code model. OCR never calls an LLM and needs no separate model configuration or API key. Its default selection excludes common test files; when relevant changed specs are excluded, the implementation repository can add narrow `include` patterns in `.opencodereview/rule.json` so OCR selects them. The CLI-based workflow works in both hosts without depending on either host's OCR plugin.
 
 For UI work, there's another important step: **look at the actual rendered interface**.
 

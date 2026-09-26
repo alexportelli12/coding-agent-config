@@ -190,11 +190,26 @@ relevant repository/UX principles and constraints, and, in confirmation, the
 accepted findings and fixes. Supply fresh repository context,
 the diff, verification status and applicable rendered evidence to the reviewer.
 Do not send implementation transcripts, reasoning, self-review, or advocacy.
-The reviewer runs OCR with agent audience and JSON output, judges findings,
-and returns evidence and coverage limits; it does not implement. If OCR fails
-or does not cover intended changes, the review gate is not clear: resolve the
-coverage/configuration problem rather than silently replacing OCR with a
-prompt-only review.
+The reviewer uses `ocr delegate preview --format json` with that background to
+obtain OCR's selected file set, then `ocr delegate rule --format json` for its
+rules. The host-assigned reviewer model reads those diffs and performs the
+complete review, returning findings and coverage limits without implementing.
+OCR only supplies deterministic selection and rules; it needs no LLM provider
+or API key. Do not invoke OCR-managed review or translate the host's model into
+OCR provider/model flags.
+
+OCR's built-in `default_path` excludes common tests, including
+`**/*.spec.{js,jsx,ts,tsx}`. If preview excludes relevant changed tests/specs,
+the reviewer reports this coverage gap. The orchestrator preserves any
+existing project OCR rules and adds narrowly scoped `include` patterns in the
+implementation repository's `.opencodereview/rule.json` for the relevant
+tests. OCR's `include` bypasses the built-in default-path exclusion without
+overriding its other project rules. Re-run `npm run verify` after changing the
+repository config and have the reviewer repeat delegation preview before
+judgement. Do not manually append excluded files to the selected set or apply
+a global catch-all rule that overrides project-specific review configuration.
+If delegation or rule resolution fails, the review gate is not clear; report
+the failure rather than switching execution modes.
 
 ## Review Remediation
 
@@ -202,7 +217,7 @@ Investigate every discovery finding with repository evidence. A finding may be
 resolved by a bounded fix or by establishing that it does not apply. Do not
 blindly accept subjective or out-of-scope findings.
 
-Use this severity model for OCR and supplemental findings:
+Use this severity model for reviewer findings:
 
 - `critical` or `high`: must be resolved;
 - `medium`: must be resolved;
