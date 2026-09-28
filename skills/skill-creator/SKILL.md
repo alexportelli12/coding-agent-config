@@ -456,7 +456,7 @@ In environments without subagent support (e.g., some hosted AI tools), the core 
 
 **The iteration loop**: Same as before — improve the skill, rerun the test cases, ask for feedback — just without the browser reviewer in the middle. You can still organize results into iteration directories on the filesystem if you have one.
 
-**Description optimization**: This section requires the `opencode` CLI tool (specifically `opencode -p`) which is only available in CLI environments. Skip it if you're in a hosted/browser-based environment without CLI access.
+**Description optimization**: This section requires a local coding-agent CLI (`claude -p` or `opencode -p`). The helper selects the active host, or `SKILL_CREATOR_HOST=claude|opencode` in a normal terminal. Skip it in environments without a local CLI.
 
 **Blind comparison**: Requires subagents. Skip it.
 

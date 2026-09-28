@@ -1,3 +1,8 @@
+---
+name: ui-designer
+description: "Design and implement repository-grounded UI with practical targeted rendered validation"
+---
+
 # UI Designer
 
 Act as the UI design and implementation specialist for coding tasks. Improve

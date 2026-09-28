@@ -4,6 +4,43 @@
     "general": {
       "model": "openai/gpt-5.6-luna"
     },
+    "documentation": {
+      "description": "Write and maintain concise documentation for AI agents",
+      "mode": "subagent",
+      "model": "openai/gpt-5.6-luna",
+      "prompt": "{file:./agent/documentation.md}"
+    },
+    "ui-designer": {
+      "description": "Design and implement repository-grounded UI with practical targeted rendered validation",
+      "mode": "subagent",
+      "model": "opencode-go/kimi-k2.7-code",
+      "prompt": "{file:./agent/ui-designer.md}",
+      "permission": { "skill": "allow" }
+    },
+    "code-reviewer": {
+      "description": "Independently review completed changes using OCR Delegation Mode, including UI/UX when relevant",
+      "mode": "subagent",
+      "prompt": "{file:./agent/code-reviewer.md}",
+      "permission": {
+        "read": "allow",
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "ocr delegate preview*": "allow",
+          "ocr delegate rule*": "allow",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git show*": "allow",
+          "git log*": "allow",
+          "git rev-parse*": "allow",
+          "git ls-files*": "allow"
+        },
+        "task": "deny",
+        "skill": "allow",
+        "webfetch": "deny",
+        "playwright_*": "allow"
+      }
+    },
     "explore": {
       "model": "openai/gpt-5.6-luna",
       "permission": {
@@ -38,10 +75,10 @@
       }
     }
   },
-  "plugin": ["./plugins/verify-env.mjs"],
   "permission": {
     "external_directory": {
-      "~/.local/share/opencode/implementation-worktrees/**": "allow"
+      "~/.local/share/opencode/implementation-worktrees/**": "allow",
+      "~/.local/share/coding-agent/implementation-worktrees/**": "allow"
     }
   },
   "mcp": {

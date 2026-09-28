@@ -20,19 +20,17 @@ from scripts.utils import parse_skill_md
 
 
 def find_project_root() -> Path:
-    """Find the project root by walking up from cwd looking for .opencode/.
-
-    Mimics how OpenCode discovers its project root, so the command file
-    we create ends up where the AI CLI will look for it.
-    """
+    """Find the project root where the active host discovers commands."""
     current = Path.cwd()
+    host = os.environ.get("SKILL_CREATOR_HOST", "claude" if os.environ.get("CLAUDECODE") else "opencode")
+    directory = ".claude" if host == "claude" else ".opencode"
     for parent in [current, *current.parents]:
-        if (parent / ".opencode").is_dir():
+        if (parent / directory).is_dir():
             return parent
-    # Fall back to .claude for compatibility
-    for parent in [current, *current.parents]:
-        if (parent / ".claude").is_dir():
-            return parent
+    if host == "opencode":
+        for parent in [current, *current.parents]:
+            if (parent / ".claude").is_dir():
+                return parent
     return current
 
 
@@ -46,8 +44,7 @@ def run_single_query(
 ) -> bool:
     """Run a single query and return whether the skill was triggered.
 
-    Creates a command file in .opencode/commands/ (or .claude/commands/ for
-    compatibility) so it appears in the AI's available_skills list, then runs
+    Creates a command file in the active host's commands directory, then runs
     the AI CLI with the raw query. Uses --include-partial-messages to detect
     triggering early from stream events (content_block_start) rather than
     waiting for the full assistant message, which only arrives after tool
@@ -55,13 +52,10 @@ def run_single_query(
     """
     unique_id = uuid.uuid4().hex[:8]
     clean_name = f"{skill_name}-skill-{unique_id}"
-    project_commands_dir = Path(project_root) / ".opencode" / "commands"
-    # Fall back to .claude/commands if .opencode doesn't exist
-    if (
-        not (Path(project_root) / ".opencode").is_dir()
-        and (Path(project_root) / ".claude").is_dir()
-    ):
-        project_commands_dir = Path(project_root) / ".claude" / "commands"
+    host = os.environ.get("SKILL_CREATOR_HOST", "claude" if os.environ.get("CLAUDECODE") else "opencode")
+    if host not in ("claude", "opencode"):
+        raise ValueError("SKILL_CREATOR_HOST must be claude or opencode")
+    project_commands_dir = Path(project_root) / (".claude" if host == "claude" else ".opencode") / "commands"
     command_file = project_commands_dir / f"{clean_name}.md"
 
     try:
@@ -79,7 +73,7 @@ def run_single_query(
         command_file.write_text(command_content)
 
         cmd = [
-            "opencode",
+            host,
             "-p",
             query,
             "--output-format",

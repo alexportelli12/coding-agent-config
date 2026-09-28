@@ -23,7 +23,10 @@ def _call_ai(prompt: str, model: str | None, timeout: int = 300) -> str:
     Prompt goes over stdin (not argv) because it embeds the full SKILL.md
     body and can easily exceed comfortable argv length.
     """
-    cmd = ["opencode", "-p", "--output-format", "text"]
+    host = os.environ.get("SKILL_CREATOR_HOST", "claude" if os.environ.get("CLAUDECODE") else "opencode")
+    if host not in ("claude", "opencode"):
+        raise ValueError("SKILL_CREATOR_HOST must be claude or opencode")
+    cmd = [host, "-p", "--output-format", "text"]
     if model:
         cmd.extend(["--model", model])
 

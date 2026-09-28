@@ -59,7 +59,7 @@ Omit the path to scan the current working directory:
 node scripts/inspect.js
 ```
 
-The report is written to stdout. In an OpenCode session, use relevant findings as an initial context map and verify them against the affected code before applying them.
+The report is written to stdout. Use relevant findings as an initial context map and verify them against the affected code before applying them.
 
 ## How to read the conventions table
 

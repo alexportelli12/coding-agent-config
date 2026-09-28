@@ -17,7 +17,10 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const METADATA_FILE = "opencode-implementation.json";
+const METADATA_FILE = "implementation-workspace.json";
+const LEGACY_METADATA_FILE = "opencode-implementation.json";
+// Keep the legacy lock name so old and new CLI versions serialize on the same
+// Git repository during an incremental installation.
 const LOCK_DIRECTORY = "opencode-implementation.lock";
 
 class WorkspaceError extends Error {
@@ -328,20 +331,28 @@ function sanitizePrefix(value) {
     .join("/");
 }
 
-function workspaceRoot(repository, environment = process.env) {
-  const configured = environment.OPENCODE_WORKTREE_ROOT;
+async function workspaceRoot(repository, environment = process.env) {
+  const configured = environment.IMPLEMENTATION_WORKTREE_ROOT || environment.OPENCODE_WORKTREE_ROOT;
+  const dataHome = environment.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
   const base = configured || path.join(
-    environment.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
-    "opencode",
+    dataHome,
+    "coding-agent",
     "implementation-worktrees",
   );
   const repositoryName = sanitizeSegment(path.basename(repository.root), "repository");
   const identity = createHash("sha256").update(repository.commonDirectory).digest("hex").slice(0, 10);
-  return path.resolve(base, `${repositoryName}-${identity}`);
+  const directory = `${repositoryName}-${identity}`;
+  // Keep existing installations in their original location. Git worktree
+  // paths and ownership metadata must never be relocated implicitly.
+  const legacy = path.resolve(dataHome, "opencode", "implementation-worktrees", directory);
+  if (!configured && await pathExists(legacy)) return legacy;
+  return path.resolve(base, directory);
 }
 
 async function writeMetadata(gitDirectory, metadata) {
-  const destination = path.join(gitDirectory, METADATA_FILE);
+  const legacy = path.join(gitDirectory, LEGACY_METADATA_FILE);
+  const current = path.join(gitDirectory, METADATA_FILE);
+  const destination = await pathExists(legacy) && !await pathExists(current) ? legacy : current;
   const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(metadata, null, 2)}\n`, { mode: 0o600 });
   await rename(temporary, destination);
@@ -349,9 +360,15 @@ async function writeMetadata(gitDirectory, metadata) {
 
 async function readMetadata(gitDirectory) {
   try {
-    return JSON.parse(await readFile(path.join(gitDirectory, METADATA_FILE), "utf8"));
+    const current = path.join(gitDirectory, METADATA_FILE);
+    const legacy = path.join(gitDirectory, LEGACY_METADATA_FILE);
+    if (await pathExists(current) && await pathExists(legacy)) {
+      throw new WorkspaceError("implementation ownership metadata is ambiguous", `Both ${current} and ${legacy} exist.`);
+    }
+    return JSON.parse(await readFile(await pathExists(current) ? current : legacy, "utf8"));
   } catch (error) {
     if (error.code === "ENOENT") return null;
+    if (error instanceof WorkspaceError) throw error;
     throw new WorkspaceError("implementation ownership metadata is invalid", error.message);
   }
 }
@@ -438,7 +455,7 @@ function workspaceLeaf(slug, attempt) {
 }
 
 async function allocateWorkspace(repository, root, pushUrl, slug, prefix, baseSha) {
-  const parent = workspaceRoot(repository);
+  const parent = await workspaceRoot(repository);
   await mkdir(parent, { recursive: true });
   const sessionId = randomBytes(12).toString("hex");
 
@@ -446,7 +463,7 @@ async function allocateWorkspace(repository, root, pushUrl, slug, prefix, baseSh
     // The repository lock serializes allocation, so readable names can use a
     // deterministic numeric suffix when a slug is already in use.
     const leaf = workspaceLeaf(slug, attempt);
-    const branch = `${sanitizePrefix(prefix || "opencode")}/${leaf}`;
+    const branch = `${sanitizePrefix(prefix || "agent")}/${leaf}`;
     const worktreePath = path.join(parent, leaf);
     await git(root, ["check-ref-format", "--branch", branch]);
     if (await refExists(root, `refs/heads/${branch}`)) continue;
@@ -475,7 +492,7 @@ async function rollbackAllocatedWorkspace(root, allocation, baseSha) {
   }
 }
 
-export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "opencode" }) {
+export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "agent" }) {
   if (!slug) throw new WorkspaceError("prepare requires --slug <short-name>");
   const repository = await repositoryAt(cwd);
   if (repository.gitDirectory !== repository.commonDirectory) {
@@ -555,7 +572,7 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "op
         "--quiet",
         "--lock",
         "--reason",
-        `OpenCode implementation ${allocation.sessionId}`,
+        `Coding agent implementation ${allocation.sessionId}`,
         "-b",
         allocation.branch,
         allocation.worktreePath,
@@ -617,7 +634,7 @@ async function ownedSession(cwd, sessionId) {
       entry.worktreeExists && entry.gitDirectory === repository.gitDirectory
     );
     if (!here?.metadata) {
-      throw new WorkspaceError("this worktree has no OpenCode implementation ownership metadata");
+      throw new WorkspaceError("this worktree has no implementation ownership metadata");
     }
     if (here.metadata.sessionId !== sessionId) {
       throw new WorkspaceError("the session token does not own this implementation worktree");

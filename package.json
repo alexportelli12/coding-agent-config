@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "scripts": {
+    "verify": "node scripts/check-config.mjs && node --test scripts/*.test.mjs skills/repo-context/tests/*.test.js",
+    "agents:generate": "node scripts/generate-claude-agents.mjs --write"
+  }
+}

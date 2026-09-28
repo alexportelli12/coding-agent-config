@@ -1,6 +1,5 @@
 ---
 description: Audit or coherently update Alex's global coding-agent workflow configuration
-agent: build
 ---
 
 # Update My Workflow: $ARGUMENTS
@@ -13,7 +12,8 @@ empty, perform a general audit. In either mode:
 
 1. Inspect the relevant current files and, for a broad audit, the root
    configuration holistically: `AGENTS.md`, agents, commands, skills,
-   references, `.gitignore`, and relevant `opencode.json` fields.
+   references, `.gitignore`, installation tooling, `opencode.json`, and the
+   Claude Code adapter (`claude/` and generated agent definitions).
 2. Search for every instruction touching the concern.
 3. Identify the current owner or owners and classify the finding as
    contradiction, duplication, stale instruction, wrong ownership, missing
@@ -23,6 +23,9 @@ empty, perform a general audit. In either mode:
    over adding another one.
 5. When responsibility moves, establish the new owner, remove obsolete
    duplicates, search for stale references, and inspect the result as a whole.
+6. Keep behavioural instructions in shared sources; place models, permissions,
+   MCP and installation details in host adapters. Check both hosts and the
+   configuration verification gate after changing integration.
 
 For a requested change, implement the smallest coherent correction justified by
 the evidence. Do not add a new agent, skill, command, or reference unless its
@@ -38,6 +41,27 @@ Identify prose that could be mechanically enforced, but do not add
 repository-specific tooling from this global configuration. Classify the
 opportunity for the repository's own `verify`, tests, architecture checks, or
 other appropriate owner instead.
+
+## Reconcile Host Installation
+
+After a workflow change passes this repository's `npm run verify`, run
+`node scripts/install.mjs` from the **primary configuration checkout**, then
+`node scripts/install.mjs --check`. Also do this on a no-change audit to catch
+missing links. This is the installation step for both hosts and the shared
+executables; do not make application repositories handle it.
+
+First establish whether the checkout being edited is the primary worktree or
+an isolated feature worktree (`git rev-parse --absolute-git-dir` and
+`git rev-parse --git-common-dir`). Never install from an unmerged feature
+worktree: it would point global agent configuration at a PR branch. In that
+case, leave the live installation on the primary checkout and explicitly report
+that installation is pending until the change is merged and pulled into the
+primary checkout. The installer's local `post-merge` hook runs on that
+fast-forward pull if it has been bootstrapped; otherwise report the one-time
+`node scripts/install.mjs` setup step. Do not claim both hosts are
+updated merely because a PR was published. If the installer finds existing
+configuration conflicts or a missing bin directory on `PATH`, report its
+diagnostic; do not replace user configuration or bypass its preflight.
 
 Make only clearly justified, low-risk changes during a general audit. Report a
 larger architectural change before implementing it. Do not manufacture work:
