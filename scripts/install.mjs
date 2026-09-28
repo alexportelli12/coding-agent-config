@@ -1,10 +1,39 @@
 #!/usr/bin/env node
-import { access, lstat, mkdir, readFile, readdir, readlink, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { access, chmod, lstat, mkdir, readFile, readdir, readlink, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const postMergeHook = `#!/bin/sh
+# coding-agent-config: managed by scripts/install.mjs
+root="$(git rev-parse --show-toplevel)" || exit 0
+exec node "$root/scripts/install.mjs" --after-merge
+`;
+
+function git(args) {
+  return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+}
+
+function installationWorktree() {
+  const primary = git(["rev-parse", "--absolute-git-dir"]) ===
+    git(["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  return primary && git(["branch", "--show-current"]) === "main";
+}
+
+function hookDirectory() {
+  let custom = "";
+  try {
+    custom = execFileSync("git", ["config", "--get", "core.hooksPath"], {
+      cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch (error) {
+    if (error.status !== 1) throw error;
+  }
+  if (custom) throw new Error("custom core.hooksPath is configured; integrate the post-merge hook deliberately");
+  return path.join(git(["rev-parse", "--path-format=absolute", "--git-common-dir"]), "hooks");
+}
 export async function links({
   home = os.homedir(),
   opencode = path.join(home, ".config/opencode"),
@@ -47,6 +76,7 @@ export async function install(options = {}) {
   const entries = await links(options);
   const pending = [];
   const conflicts = [];
+  const hook = options.hookDirectory ? path.join(options.hookDirectory, "post-merge") : null;
   for (const [destination, source] of entries) {
     await access(source);
     try {
@@ -62,12 +92,25 @@ export async function install(options = {}) {
       else throw error;
     }
   }
+  if (hook) {
+    try {
+      const info = await lstat(hook);
+      if (!info.isFile() || await readFile(hook, "utf8") !== postMergeHook) conflicts.push(hook);
+      else if (!(info.mode & 0o111)) conflicts.push(hook);
+    } catch (error) {
+      if (error.code === "ENOENT") pending.push([hook, null]);
+      else throw error;
+    }
+  }
   if (conflicts.length) throw new Error(`existing configuration differs; no changes made:\n${conflicts.join("\n")}`);
   if (options.check && pending.length) throw new Error(`setup incomplete:\n${pending.map(([destination]) => destination).join("\n")}`);
   if (!options.check) {
     for (const [destination, source] of pending) {
       await mkdir(path.dirname(destination), { recursive: true });
-      if (process.platform === "win32" && destination.endsWith(".cmd")) {
+      if (destination === hook) {
+        await writeFile(destination, postMergeHook, { flag: "wx", mode: 0o755 });
+        await chmod(destination, 0o755);
+      } else if (process.platform === "win32" && destination.endsWith(".cmd")) {
         await writeFile(destination, windowsWrapper(source), { flag: "wx" });
       } else {
         await symlink(source, destination, process.platform === "win32" && !source.endsWith(".md") && !source.endsWith(".json") ? "junction" : undefined);
@@ -85,11 +128,15 @@ function windowsWrapper(source) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
+    if (!installationWorktree()) {
+      if (process.argv.includes("--after-merge")) process.exit(0);
+      throw new Error("install only from the primary configuration checkout on main; never link an unmerged feature worktree");
+    }
     const bin = path.join(os.homedir(), ".local/bin");
     if (!(process.env.PATH || "").split(path.delimiter).some((entry) => path.resolve(entry) === bin)) {
       throw new Error(`${bin} is not on PATH; add it to your shell/CI environment before installing`);
     }
-    const result = await install({ check: process.argv.includes("--check") });
+    const result = await install({ check: process.argv.includes("--check"), hookDirectory: hookDirectory() });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     process.stderr.write(`${error.message}\n`);

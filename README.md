@@ -24,13 +24,22 @@ conflicting existing configuration; resolve those paths deliberately and rerun.
 If you previously copied Claude Code commands, agents or skills by hand, compare
 them and move your own copies aside before rerunning; setup never overwrites
 them. Existing application repositories need no changes to their `verify`
-scripts. Existing worktree metadata, paths and `opencode/` branches remain valid:
+scripts. The first successful install also adds a local Git `post-merge` hook
+to this config checkout. Thereafter a fast-forward `git pull` on the primary
+`main` checkout runs installation automatically; pulls in feature worktrees
+and application repositories do not. An existing `post-merge` hook or custom
+`core.hooksPath` is never replaced. Existing worktree metadata, paths and
+`opencode/` branches remain valid:
 legacy metadata continues to be updated in place, while new worktrees use a
 host-neutral metadata filename. The legacy Git lock name is retained to keep
 old and new lifecycle processes synchronized.
 Do not link the whole `~/.claude/skills` directory: Claude Code may also store
 its own synced skills there. The installer links only this checkout's authored
 skills. Run `npm run verify` here to check the configuration and lifecycle.
+`/update-my-workflow` invokes the installer after a green update or during a
+no-change audit when run from the primary checkout. For changes delivered as a
+PR, installation waits until the merged update is pulled on `main`; the hook
+then reconciles both hosts without linking to an unmerged feature worktree.
 
 The shared boundary is `AGENTS.md`, `commands/`, `skills/`, `agent/` (canonical
 role prompts), and `scripts/`. `opencode.json` owns OpenCode models, agent
