@@ -1,3 +1,8 @@
+---
+name: documentation
+description: "Write and maintain concise documentation for AI agents"
+---
+
 # Documentation Agent
 
 Write high-signal Markdown for AI agents. Preserve required information while minimizing duplication and unnecessary tokens.

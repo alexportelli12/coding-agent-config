@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -79,7 +80,7 @@ async function lifecycle(fixture, cwd, operation, options = {}, allowedExitCodes
   for (const [key, value] of Object.entries(options)) args.push(`--${key}`, value);
   const result = await run(process.execPath, args, {
     cwd,
-    env: { OPENCODE_WORKTREE_ROOT: fixture.worktrees, ...extraEnv },
+    env: { IMPLEMENTATION_WORKTREE_ROOT: fixture.worktrees, ...extraEnv },
     allowedExitCodes,
   });
   return {
@@ -125,10 +126,28 @@ test("uses readable slug names and numeric suffixes for repeated requests", asyn
   const second = await lifecycle(fixture, fixture.control, "prepare", { slug: "same change" });
 
   assert.equal(path.basename(first.json.worktreePath), "same-change");
-  assert.equal(first.json.branch, "opencode/same-change");
+  assert.equal(first.json.branch, "agent/same-change");
   assert.equal(path.basename(second.json.worktreePath), "same-change-2");
-  assert.equal(second.json.branch, "opencode/same-change-2");
+  assert.equal(second.json.branch, "agent/same-change-2");
   assert.notEqual(first.json.sessionId, second.json.sessionId);
+});
+
+test("keeps legacy workspace roots and branch ownership available", async (t) => {
+  const fixture = await createFixture(t);
+  const dataHome = path.join(fixture.root, "data");
+  const identity = createHash("sha256").update(path.join(fixture.control, ".git")).digest("hex").slice(0, 10);
+  const legacyRoot = path.join(dataHome, "opencode", "implementation-worktrees", `control-${identity}`);
+  await mkdir(legacyRoot, { recursive: true });
+  const env = { IMPLEMENTATION_WORKTREE_ROOT: "", OPENCODE_WORKTREE_ROOT: "", XDG_DATA_HOME: dataHome };
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "retained", prefix: "opencode" }, [0], env);
+  assert.equal(prepared.json.worktreePath, path.join(legacyRoot, "retained"));
+  assert.equal(prepared.json.branch, "opencode/retained");
+  const gitDirectory = (await git(prepared.json.worktreePath, "rev-parse", "--absolute-git-dir")).stdout.trim();
+  await rename(path.join(gitDirectory, "implementation-workspace.json"), path.join(gitDirectory, "opencode-implementation.json"));
+  const info = await lifecycle(fixture, fixture.control, "info", { session: prepared.json.sessionId }, [0], env);
+  assert.equal(info.json.worktreePath, prepared.json.worktreePath);
+  await lifecycle(fixture, fixture.control, "record-evidence", { session: prepared.json.sessionId }, [0], env);
+  assert.equal(await pathExists(path.join(gitDirectory, "implementation-workspace.json")), false);
 });
 
 test("fast-forwards a clean behind control branch before creating the worktree", async (t) => {
@@ -316,7 +335,7 @@ test("merges current default history into a workflow-published follow-up branch"
   assert.equal(marked.json.state, "pr-open");
   const worktreeList = (await git(fixture.control, "worktree", "list", "--porcelain")).stdout;
   assert.match(worktreeList, new RegExp(`worktree ${prepared.json.worktreePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
-  assert.match(worktreeList, /locked OpenCode implementation/);
+  assert.match(worktreeList, /locked Coding agent implementation/);
   const latest = await advanceRemote(fixture);
 
   const synchronized = await lifecycle(
@@ -444,7 +463,7 @@ test("retains pending ownership when the remote ref changes during publication",
   await writeFile(hook, `#!/bin/sh
 while read old new ref; do
   case "$ref" in
-    refs/heads/opencode/*)
+    refs/heads/agent/*)
       git update-ref "$ref" "$(git rev-parse refs/heads/trunk)" "$new"
       ;;
   esac

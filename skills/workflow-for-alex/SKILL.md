@@ -1,8 +1,6 @@
 ---
 name: workflow-for-alex
 description: Design and evolve Alex's global coding-agent workflow configuration. Use when auditing or changing AGENTS.md, agents, commands, skills, implementation orchestration, validation ownership, or workflow governance.
-metadata:
-  opencode/autoinvoke: false
 ---
 
 # Workflow Governance
@@ -51,6 +49,12 @@ ambiguous ownership.
 The workflow skill is the architectural and governance source of truth for this
 configuration. It does not replace `AGENTS.md`, specialist expertise, reviewer
 protocols, repository validation, or task contracts.
+
+The workflow is shared across coding-agent hosts. Commands and skills stay
+canonical; agent behaviour lives in `agent/`, with host-specific definitions
+generated or configured by adapters. Models, permissions, MCP and environment
+setup belong to the host adapters. `npm run verify` checks that boundary and
+generated definitions. Do not fork workflow semantics to accommodate a host.
 
 ## Decision ladder
 

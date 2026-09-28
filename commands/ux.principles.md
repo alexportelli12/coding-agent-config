@@ -1,6 +1,5 @@
 ---
 description: Generate or refine the product's UX principles document
-agent: documentation
 ---
 
 # UX Principles: $ARGUMENTS

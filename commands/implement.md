@@ -1,6 +1,5 @@
 ---
 description: Investigate and implement a request through verified pull request creation
-agent: build
 ---
 
 # Implement: $ARGUMENTS

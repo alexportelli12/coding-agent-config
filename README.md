@@ -8,7 +8,60 @@ Instead, I want the workflow around the agent to do a lot of the heavy lifting.
 
 This repo is my attempt at building that workflow.
 
-It gives [OpenCode](https://opencode.ai/) a shared set of commands, skills, agents and verification tools that I can use across different repositories. The application repo still owns its architecture, conventions and quality checks. This config provides the workflow around them.
+It gives [OpenCode](https://opencode.ai/) and [Claude Code](https://code.claude.com/) one shared set of commands, skills, agent instructions and verification tools across projects. The application repo still owns its architecture, conventions and quality checks.
+
+## Install
+
+Add `~/.local/bin` (on Windows `%USERPROFILE%\.local\bin`) to `PATH` in your
+shell and CI first. Use Node.js and run `node scripts/install.mjs` from this checkout, then
+`node scripts/install.mjs --check`. The installer links the shared files into
+`~/.config/opencode/` and `~/.claude/` and exposes `verify-runner` and
+`implementation-workspace` in that bin directory. `npm run verify`
+then works identically in a normal shell, CI, OpenCode or Claude Code. No
+application repo needs host-specific config. The installer is idempotent,
+preflights all destinations and stops without changing anything if it finds
+conflicting existing configuration; resolve those paths deliberately and rerun.
+If you previously copied Claude Code commands, agents or skills by hand, compare
+them and move your own copies aside before rerunning; setup never overwrites
+them. Existing application repositories need no changes to their `verify`
+scripts. Existing worktree metadata, paths and `opencode/` branches remain valid:
+legacy metadata continues to be updated in place, while new worktrees use a
+host-neutral metadata filename. The legacy Git lock name is retained to keep
+old and new lifecycle processes synchronized.
+Do not link the whole `~/.claude/skills` directory: Claude Code may also store
+its own synced skills there. The installer links only this checkout's authored
+skills. Run `npm run verify` here to check the configuration and lifecycle.
+
+The shared boundary is `AGENTS.md`, `commands/`, `skills/`, `agent/` (canonical
+role prompts), and `scripts/`. `opencode.json` owns OpenCode models, agent
+permissions, and its Playwright MCP. `claude/agents.json` owns Claude-specific
+agent metadata; `claude/agents/` is generated from it and `agent/` by
+`npm run agents:generate`. The generated wrappers are checked by `npm run verify`
+so behavioural prompts cannot silently drift. Claude Code reads the linked
+`CLAUDE.md` from `AGENTS.md`, while both hosts discover the same commands and
+skills through their native user configuration directories.
+This follows [Claude Code's user skills/commands](https://code.claude.com/docs/en/skills),
+[subagents](https://code.claude.com/docs/en/sub-agents), and
+[MCP scopes](https://code.claude.com/docs/en/mcp), and OpenCode's
+[commands](https://opencode.ai/docs/commands/) and
+[agent prompt files](https://opencode.ai/docs/agents/).
+
+For rendered inspection in Claude Code, install the browser server in native
+user scope where Chromium/Playwright is available:
+
+```bash
+claude mcp add --scope user playwright -- npx -y @playwright/mcp@latest --headless --isolated
+claude mcp get playwright
+```
+
+Configure the browser binary and output directory for your platform as needed;
+OpenCode's existing `opencode.json` Playwright settings remain OpenCode-only.
+OCR Delegation Mode requires the `ocr` CLI on `PATH` in either host. The
+reviewer uses `ocr delegate preview` and `ocr delegate rule` locally; the host
+supplies the reviewing model. Claude Code may prompt for access to a newly
+created external implementation worktree; grant that directory for the session
+using its native `/add-dir` when requested. Verify Claude Code configuration
+with `claude doctor`, `/status`, and `/agents` after installation.
 
 ## What problem am I trying to solve?
 
@@ -81,7 +134,7 @@ The contract also doesn't prescribe exactly how the agent should implement the f
 
 If investigation reveals a material product or architectural ambiguity, the agent asks me. Otherwise it continues without a separate planning approval checkpoint.
 
-The command first synchronizes the repository's normal control checkout using explicit fetch and fast-forward semantics, then creates a dedicated feature branch and linked worktree outside the repository. Branch and worktree names preserve the short request slug; if that slug is already in use, allocation adds a deterministic numeric suffix. The repository directory retains a deterministic identity hash so repositories with the same basename cannot share workspaces, while the returned `sessionId` remains a separate opaque ownership token. Discovery, dependency setup, implementation, verification and review all happen in that isolated workspace, so concurrent `/implement` sessions do not share branches, staged files or mutable dependency state.
+The command first synchronizes the repository's normal control checkout using explicit fetch and fast-forward semantics, then creates a dedicated feature branch and linked worktree outside the repository. Branch and worktree names preserve the short request slug; if that slug is already in use, allocation adds a deterministic numeric suffix. New branches use the `agent/` prefix unless a repository requires `--prefix`; existing `opencode/` branches and their retained worktrees remain owned and usable. The repository directory retains a deterministic identity hash so repositories with the same basename cannot share workspaces, while the returned `sessionId` remains a separate opaque ownership token. Discovery, dependency setup, implementation, verification and review all happen in that isolated workspace, so concurrent `/implement` sessions do not share branches, staged files or mutable dependency state.
 
 After a green verification baseline, the command implements, runs final verification, performs applicable rendered inspection and independent review, and remediates meaningful findings. It then commits the intended changes and records that the committed tree is covered by the completed evidence before rechecking the remote default branch. Centralized lifecycle tooling rebases only session-owned unpublished commits, preserves published follow-up history with a merge when synchronization is required, and stops on ambiguous or conflicting state. Any effective integration change clears that evidence record, so the branch remains unpublishable until the command refreshes the affected gates and records the new tree.
 
@@ -153,8 +206,9 @@ commands/   → workflows I explicitly invoke
 agent/      → specialised agent roles
 skills/     → expertise loaded when it's actually needed
 scripts/    → shared deterministic tooling
-plugins/    → small OpenCode integrations
 AGENTS.md   → durable engineering principles for the workflow
+claude/     → Claude Code agent metadata and generated wrappers
+opencode.json → OpenCode-only host configuration
 ```
 
 Some examples:
