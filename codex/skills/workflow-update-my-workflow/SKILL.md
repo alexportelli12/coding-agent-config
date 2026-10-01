@@ -1,6 +1,10 @@
 ---
-description: Audit or coherently update Alex's global coding-agent workflow configuration
+name: workflow-update-my-workflow
+description: "Audit or coherently update Alex's global coding-agent workflow configuration"
 ---
+
+In this Codex command adapter, `$ARGUMENTS` means the request supplied with
+this skill invocation. If no request was supplied, treat it as empty.
 
 # Update My Workflow: $ARGUMENTS
 

@@ -5,13 +5,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { syncAgents } from "./generate-claude-agents.mjs";
 import { links } from "./install.mjs";
+import { syncCodex } from "./generate-codex.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 export async function check(base = root) {
   await syncAgents(base);
+  await syncCodex(base);
   const config = JSON.parse(await readFile(path.join(base, "opencode.json"), "utf8"));
   const claude = JSON.parse(await readFile(path.join(base, "claude/agents.json"), "utf8"));
+  const codex = JSON.parse(await readFile(path.join(base, "codex/agents.json"), "utf8"));
+  assert.deepEqual(Object.keys(codex).sort(), Object.keys(claude).sort(), "each shared agent must have a Codex adapter");
+  assert.equal(codex["code-reviewer"].sandbox_mode, "read-only");
   assert.deepEqual(
     (await readdir(path.join(base, "agent"))).filter((name) => name.endsWith(".md")).sort(),
     Object.keys(claude).map((name) => `${name}.md`).sort(),
@@ -22,6 +27,7 @@ export async function check(base = root) {
     assert.equal(config.agent[name].prompt, `{file:./agent/${name}.md}`);
     assert.equal(config.agent[name].mode, "subagent");
     assert.equal(config.agent[name].description, claude[name].description);
+    assert.equal(codex[name].description, claude[name].description);
     const body = await readFile(path.join(base, "agent", `${name}.md`), "utf8");
     assert.doesNotMatch(body, /(?:openai|opencode-go)\/[a-z0-9.-]+/i);
   }
@@ -43,7 +49,9 @@ export async function check(base = root) {
       assert.doesNotMatch(text, /(?:openai|opencode-go)\/[a-z0-9.-]+/i);
     }
   }
-  for (const [destination, source] of await links({ checkout: base })) {
+  const installation = await links({ checkout: base });
+  assert.equal(new Set(installation.map(([destination]) => destination)).size, installation.length, "installation destinations must be unique");
+  for (const [destination, source] of installation) {
     assert.ok(destination && source);
     await access(source);
   }
