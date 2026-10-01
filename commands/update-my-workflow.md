@@ -53,10 +53,12 @@ executables; do not make application repositories handle it.
 First establish whether the checkout being edited is the primary worktree or
 an isolated feature worktree (`git rev-parse --absolute-git-dir` and
 `git rev-parse --git-common-dir`). Never install from an unmerged feature
-worktree: it would point global agent configuration at a PR branch. In that
-case, leave the live installation on the primary checkout and explicitly report
-that installation is pending until the change is merged and pulled into the
-primary checkout. The installer's local `post-merge` hook runs on that
+worktree: it would point global agent configuration at a PR branch. For the
+same reason, deliver workflow changes from a linked worktree and never switch
+the primary checkout off `main`. When editing from a feature worktree, leave
+the live installation on the primary checkout and explicitly report that
+installation is pending until the change is merged and pulled into the primary
+checkout. The installer's local `post-merge` hook runs on that
 fast-forward pull if it has been bootstrapped; otherwise report the one-time
 `node scripts/install.mjs` setup step. Do not claim both hosts are
 updated merely because a PR was published. If the installer finds existing

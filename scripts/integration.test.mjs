@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, symlink, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -42,6 +42,26 @@ test("shared setup is idempotent and exposes npm verification in an application"
   assert.match(result.output, /VERIFY PASSED - 1\/1/);
   assert.match(await readFile(path.join(home, ".claude/CLAUDE.md"), "utf8"), /senior engineering deputy/);
   assert.match(await readFile(path.join(home, "git-hooks/post-merge"), "utf8"), /--after-merge/);
+});
+
+test("setup removes only dangling links it created for retired agents and skills", async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "coding-agent-stale-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const options = { home, checkout, hookDirectory: path.join(home, "git-hooks") };
+  await install(options);
+  const retired = path.join(home, ".claude/agents/retired.md");
+  const retiredSkill = path.join(home, ".claude/skills/retired");
+  const foreign = path.join(home, ".claude/agents/mine.md");
+  await symlink(path.join(checkout, "claude/agents/retired.md"), retired);
+  await symlink(path.join(checkout, "skills/retired"), retiredSkill);
+  await symlink(path.join(home, "elsewhere.md"), foreign);
+
+  await assert.rejects(install({ ...options, check: true }), /retired\.md \(stale\)/);
+  assert.equal((await install(options)).removed, 2);
+  await assert.rejects(lstat(retired), /ENOENT/);
+  await assert.rejects(lstat(retiredSkill), /ENOENT/);
+  assert.ok((await lstat(foreign)).isSymbolicLink());
+  await install({ ...options, check: true });
 });
 
 test("setup refuses conflicts without changing unrelated configuration", async (t) => {

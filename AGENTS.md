@@ -36,13 +36,22 @@ trade-offs, and evidence rather than overstating confidence. Avoid unnecessary
 ceremony, and finish with a clear summary of changes, validation, and useful
 follow-up information.
 
-## Worktree boundaries
+## Git delivery
 
-Keep git history under my control. Outside a user-invoked workflow that
-explicitly owns Git delivery, do not commit, push, rebase, or create branches
-unless I ask. An owning workflow may commit intended changes, push a feature
-branch, and create a pull request only after its safeguards pass, using its
-centralized lifecycle tooling rather than changing the launch checkout
-directly. Never automatically merge, push feature work directly to the default
-branch, force push, rewrite unrelated history, automatically stash, or include,
-discard, or overwrite unrelated user changes.
+Deliver completed work as a pull request without waiting to be asked. Once the
+repository's quality gate (`npm run verify` where it exists) is green, you may
+create a feature branch, commit the intended changes, push that branch, and
+open or update a pull request with the `gh` CLI. If you are on the default
+branch, create a feature branch first, preferably in a linked worktree
+(`git worktree add`) so my checkout stays on its branch; never commit to the
+default branch directly. Delivery belongs to the top-level session: delegated
+agents never commit, push, or open pull requests.
+
+If the working tree held my uncommitted changes before you started, ask before
+committing rather than guessing what belongs to the task.
+
+Never merge; push to the default branch; force push; rewrite published or
+unrelated history; stash, discard, or overwrite changes you did not make; or
+include unrelated changes in a commit. Merge decisions and final product
+validation stay with me. `/implement` keeps its stricter isolated-worktree
+lifecycle; this policy does not relax it.

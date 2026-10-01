@@ -4,6 +4,8 @@ bun.lock
 .ruff_cache
 skills-lock.json
 skills/synced/
+__pycache__/
+*.skill
 
 # installed by herdr
 herdr-tui-session.js

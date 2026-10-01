@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -62,7 +62,10 @@ async function createFixture(t) {
   await run("git", ["clone", "--quiet", remote, control]);
   await git(control, "config", "user.name", "Workspace Test");
   await git(control, "config", "user.email", "workspace@example.test");
-  return { root, remote, seed, control, worktrees };
+  // prepare sweeps merged workspaces through gh; tests must never reach the
+  // real CLI, so every fixture gets an unconfigured (always failing) stub.
+  const gh = await ghStub(t);
+  return { root, remote, seed, control, worktrees, gh };
 }
 
 async function pathExists(candidate) {
@@ -80,7 +83,7 @@ async function lifecycle(fixture, cwd, operation, options = {}, allowedExitCodes
   for (const [key, value] of Object.entries(options)) args.push(`--${key}`, value);
   const result = await run(process.execPath, args, {
     cwd,
-    env: { IMPLEMENTATION_WORKTREE_ROOT: fixture.worktrees, ...extraEnv },
+    env: { IMPLEMENTATION_WORKTREE_ROOT: fixture.worktrees, ...ghEnv(fixture.gh), ...extraEnv },
     allowedExitCodes,
   });
   return {
@@ -633,8 +636,8 @@ async function setGhMergeCommit(stubDirectory, prNumber, sha) {
   await writeFile(path.join(stubDirectory, `${prNumber}.merge`), sha);
 }
 
-async function publishAndMark(fixture, prepared, content = "feature\n", prNumber = 7) {
-  await commit(prepared.json.worktreePath, "feature.txt", content, "feature");
+async function publishAndMark(fixture, prepared, content = "feature\n", prNumber = 7, filename = "feature.txt") {
+  await commit(prepared.json.worktreePath, filename, content, "feature");
   await recordEvidence(fixture, prepared);
   const published = await lifecycle(
     fixture,
@@ -832,4 +835,222 @@ test("cleanup protects the worktree it is invoked from and undeterminable pull-r
   const row = result.json.results.find((candidate) => candidate.worktreePath === active.json.worktreePath);
   assert.equal(row.decision, "protect");
   assert.equal(await pathExists(active.json.worktreePath), true);
+});
+
+async function mergeIntoTrunk(fixture, prepared) {
+  await git(fixture.seed, "fetch", "--quiet", "origin", prepared.json.branch);
+  await git(fixture.seed, "merge", "--quiet", "--no-ff", "--no-edit", `origin/${prepared.json.branch}`);
+  await git(fixture.seed, "push", "--quiet", "origin", "trunk");
+  return (await git(fixture.seed, "rev-parse", "HEAD")).stdout.trim();
+}
+
+test("prepare provides an evidence directory outside the worktree that cleanup removes", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "evidence home" });
+  const { evidenceDir, worktreePath, sessionId } = prepared.json;
+
+  assert.equal(evidenceDir, `${worktreePath}.evidence`);
+  assert.equal(await pathExists(evidenceDir), true);
+  assert.ok(!evidenceDir.startsWith(`${worktreePath}${path.sep}`));
+  const info = await lifecycle(fixture, fixture.control, "info", { session: sessionId });
+  assert.equal(info.json.evidenceDir, evidenceDir);
+
+  // Evidence written there must not block the clean-tree lifecycle gates.
+  await writeFile(path.join(evidenceDir, "desktop.png"), "png");
+  await publishAndMark(fixture, prepared);
+  await pretendMerged(fixture, prepared);
+  await setGhState(fixture.gh, 7, "MERGED");
+  const result = await lifecycle(fixture, fixture.control, "cleanup", { "dry-run": "false" });
+  assert.equal(result.json.removedCount, 1);
+  assert.equal(await pathExists(worktreePath), false);
+  assert.equal(await pathExists(evidenceDir), false);
+});
+
+test("prepare sweeps consumed workspaces and keeps everything it cannot prove safe", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  // An in-progress session in another terminal: no PR recorded yet.
+  const concurrent = await lifecycle(fixture, fixture.control, "prepare", { slug: "sweep concurrent" });
+
+  const open = await lifecycle(fixture, fixture.control, "prepare", { slug: "sweep open" });
+  await publishAndMark(fixture, open, "open\n", 1, "open.txt");
+
+  const dirty = await lifecycle(fixture, fixture.control, "prepare", { slug: "sweep dirty" });
+  await publishAndMark(fixture, dirty, "dirty\n", 2, "dirty.txt");
+  await mergeIntoTrunk(fixture, dirty);
+  await writeFile(path.join(dirty.json.worktreePath, "dirty.txt"), "unfinished\n");
+
+  const consumed = await lifecycle(fixture, fixture.control, "prepare", { slug: "sweep consumed" });
+  await publishAndMark(fixture, consumed, "consumed\n", 3, "consumed.txt");
+  await mergeIntoTrunk(fixture, consumed);
+
+  const extra = await lifecycle(fixture, fixture.control, "prepare", { slug: "sweep extra" });
+  await publishAndMark(fixture, extra, "extra\n", 4, "extra.txt");
+  const extraMerge = await mergeIntoTrunk(fixture, extra);
+  await commit(extra.json.worktreePath, "local-only.txt", "local\n", "unpublished local work");
+
+  // PR states become visible only now, so earlier prepares kept everything.
+  await setGhState(fixture.gh, 1, "OPEN");
+  await setGhState(fixture.gh, 2, "MERGED");
+  await setGhState(fixture.gh, 3, "MERGED");
+  await setGhState(fixture.gh, 4, "MERGED");
+  await setGhMergeCommit(fixture.gh, 4, extraMerge);
+
+  const next = await lifecycle(fixture, fixture.control, "prepare", { slug: "sweep next" });
+  const { removed, kept } = next.json.cleanup;
+  const keptReason = (prepared) => kept.find((row) => row.worktreePath === prepared.json.worktreePath)?.reason;
+  assert.match(keptReason(open), /pull request is open/);
+  assert.match(keptReason(dirty), /uncommitted or untracked work/);
+  assert.match(keptReason(concurrent), /no recorded pull request/);
+
+  const consumedRow = removed.find((row) => row.worktreePath === consumed.json.worktreePath);
+  assert.equal(consumedRow.branchDeleted, true);
+  assert.equal(await pathExists(consumed.json.worktreePath), false);
+  assert.equal(await pathExists(consumed.json.evidenceDir), false);
+
+  const extraRow = removed.find((row) => row.worktreePath === extra.json.worktreePath);
+  assert.equal(extraRow.branchDeleted, false);
+  assert.ok(extraRow.branchRetainedReason);
+  assert.equal(await pathExists(extra.json.worktreePath), false);
+  assert.ok((await git(fixture.control, "branch", "--list", extra.json.branch)).stdout.includes(extra.json.branch));
+
+  assert.equal(removed.length, 2);
+  for (const survivor of [open, dirty, concurrent, next]) {
+    assert.equal(await pathExists(survivor.json.worktreePath), true);
+  }
+});
+
+test("prepare keeps workspaces and still succeeds when gh cannot report state", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  const merged = await lifecycle(fixture, fixture.control, "prepare", { slug: "gh failure" });
+  await publishAndMark(fixture, merged);
+  await pretendMerged(fixture, merged);
+  // The fixture's gh stub has no state for this PR, so it exits non-zero.
+
+  const next = await lifecycle(fixture, fixture.control, "prepare", { slug: "after gh failure" });
+  assert.equal(next.code, 0);
+  assert.equal(next.json.cleanup.removed.length, 0);
+  const row = next.json.cleanup.kept.find((candidate) => candidate.worktreePath === merged.json.worktreePath);
+  assert.match(row.reason, /could not determine pull request state/);
+  assert.equal(await pathExists(merged.json.worktreePath), true);
+});
+
+test("publish explains how to proceed when evidence is missing or stale", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "publish guidance" });
+  await commit(prepared.json.worktreePath, "feature.txt", "feature\n", "feature");
+
+  const missing = await lifecycle(fixture, prepared.json.worktreePath, "publish", { session: prepared.json.sessionId });
+  assert.equal(missing.json.requiresEvidence, true);
+  assert.equal(missing.json.requiresRevalidation, false);
+  assert.match(missing.json.nextAction, /record-evidence/);
+
+  await recordEvidence(fixture, prepared);
+  await advanceRemote(fixture);
+  const stale = await lifecycle(fixture, prepared.json.worktreePath, "publish", { session: prepared.json.sessionId });
+  assert.equal(stale.json.requiresRevalidation, true);
+  assert.match(stale.json.nextAction, /npm run verify.*record-evidence.*publish again/);
+});
+
+// The configured URL names a GitHub repository while insteadOf routes the
+// transport to the local bare remote, as a credential helper or mirror would.
+async function useGithubRemote(fixture) {
+  const github = "https://github.com/acme/widgets.git";
+  await git(fixture.control, "config", `url.${fixture.remote}.insteadOf`, github);
+  await git(fixture.control, "remote", "set-url", "origin", github);
+}
+
+async function mediaTree(fixture) {
+  const listing = await run("git", ["--git-dir", fixture.remote, "ls-tree", "-r", "--name-only", "pr-media"], {
+    allowedExitCodes: [0, 128],
+  });
+  return listing.code === 0 ? listing.stdout.trim().split("\n").filter(Boolean) : [];
+}
+
+async function mediaParents(fixture) {
+  return (await run("git", ["--git-dir", fixture.remote, "show", "-s", "--format=%P", "pr-media"])).stdout.trim();
+}
+
+test("publish-media commits evidence to pr-media without touching the feature branch or control checkout", async (t) => {
+  const fixture = await createFixture(t);
+  await useGithubRemote(fixture);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "media demo" });
+  const { evidenceDir, worktreePath, sessionId, branch } = prepared.json;
+  const featureHead = await commit(worktreePath, "feature.txt", "feature\n", "feature");
+  const controlHead = (await git(fixture.control, "rev-parse", "HEAD")).stdout.trim();
+  await writeFile(path.join(evidenceDir, "after-home-desktop.png"), "png");
+  await writeFile(path.join(evidenceDir, "review-background.md"), "private context");
+
+  const first = await lifecycle(fixture, worktreePath, "publish-media", { session: sessionId });
+  assert.deepEqual(first.json.files.map((file) => file.path), [`${branch}/after-home-desktop.png`]);
+  assert.equal(
+    first.json.files[0].url,
+    `https://github.com/acme/widgets/blob/${first.json.commit}/agent/media-demo/after-home-desktop.png?raw=true`,
+  );
+  assert.deepEqual(await mediaTree(fixture), [`${branch}/after-home-desktop.png`]);
+  assert.equal(await mediaParents(fixture), "", "the first media commit is an orphan");
+
+  await writeFile(path.join(evidenceDir, "after-home-mobile.png"), "png");
+  const second = await lifecycle(fixture, fixture.control, "publish-media", { session: sessionId, files: "after-home-mobile.png" });
+  assert.equal(await mediaParents(fixture), first.json.commit, "later media commits are additive");
+  assert.equal(second.json.files.length, 1);
+  assert.equal((await mediaTree(fixture)).length, 2);
+
+  assert.equal((await git(worktreePath, "rev-parse", "HEAD")).stdout.trim(), featureHead);
+  assert.equal((await git(worktreePath, "status", "--porcelain")).stdout, "");
+  assert.equal((await git(fixture.control, "rev-parse", "HEAD")).stdout.trim(), controlHead);
+  assert.equal((await git(fixture.control, "status", "--porcelain")).stdout, "");
+  assert.equal((await git(fixture.control, "branch", "--list", "pr-media")).stdout, "");
+  assert.notEqual(await run("git", ["--git-dir", fixture.remote, "show-ref", "--verify", `refs/heads/${branch}`], {
+    allowedExitCodes: [0, 1, 128],
+  }).then(({ code }) => code), 0, "the feature branch is not pushed");
+});
+
+test("publish-media refuses files outside evidenceDir and non-media files", async (t) => {
+  const fixture = await createFixture(t);
+  await useGithubRemote(fixture);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "media guard" });
+  const { evidenceDir, sessionId } = prepared.json;
+  const outside = path.join(fixture.root, "outside.png");
+  await writeFile(outside, "png");
+  await writeFile(path.join(evidenceDir, "notes.md"), "notes");
+  await symlink(outside, path.join(evidenceDir, "escape.png"));
+
+  for (const files of ["../../outside.png", outside, "escape.png"]) {
+    const result = await lifecycle(fixture, fixture.control, "publish-media", { session: sessionId, files }, [2]);
+    assert.match(result.stderr, /outside evidenceDir/);
+  }
+  const notes = await lifecycle(fixture, fixture.control, "publish-media", { session: sessionId, files: "notes.md" }, [2]);
+  assert.match(notes.stderr, /non-media file/);
+  assert.deepEqual(await mediaTree(fixture), []);
+});
+
+test("publish-media explains when the remote is not on GitHub", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "media local" });
+  await writeFile(path.join(prepared.json.evidenceDir, "shot.png"), "png");
+  const result = await lifecycle(fixture, fixture.control, "publish-media", { session: prepared.json.sessionId }, [2]);
+  assert.match(result.stderr, /needs a GitHub remote/);
+});
+
+test("cleanup removes a removed workspace's media folder in one additive commit", async (t) => {
+  const fixture = await withEnvGitignore(t);
+  await useGithubRemote(fixture);
+  const merged = await lifecycle(fixture, fixture.control, "prepare", { slug: "media merged" });
+  const open = await lifecycle(fixture, fixture.control, "prepare", { slug: "media open" });
+  for (const prepared of [merged, open]) {
+    await writeFile(path.join(prepared.json.evidenceDir, "after.png"), "png");
+    await lifecycle(fixture, fixture.control, "publish-media", { session: prepared.json.sessionId });
+  }
+  await publishAndMark(fixture, merged, "merged\n", 1, "merged.txt");
+  await publishAndMark(fixture, open, "open\n", 2, "open.txt");
+  await mergeIntoTrunk(fixture, merged);
+  await setGhState(fixture.gh, 1, "MERGED");
+  await setGhState(fixture.gh, 2, "OPEN");
+  const before = (await run("git", ["--git-dir", fixture.remote, "rev-parse", "pr-media"])).stdout.trim();
+
+  const next = await lifecycle(fixture, fixture.control, "prepare", { slug: "media next" });
+  assert.equal(next.json.cleanup.removed.length, 1);
+  assert.deepEqual(next.json.cleanup.media, [{ branches: [merged.json.branch], removed: true }]);
+  assert.deepEqual(await mediaTree(fixture), [`${open.json.branch}/after.png`]);
+  assert.equal(await mediaParents(fixture), before);
 });

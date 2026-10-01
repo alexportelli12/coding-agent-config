@@ -6,10 +6,8 @@ Review the rendered interface, not only source code. Evaluate project-specific U
 
 1. Identify the user's primary journey and the change's intended outcome.
 2. Read relevant project guidance and inspect the surrounding interface so local intent and conventions are understood.
-3. Exercise the flow at representative viewport sizes with realistic content.
-4. Inspect relevant interaction, loading, empty, error, success, selected, focus, and disabled states.
-5. Use screenshots or browser inspection where practical to assess hierarchy, grouping, scanning, wrapping, and responsive composition.
-6. Report only meaningful findings, ranked by user impact. Do not invent a redesign or duplicate lint and automated accessibility output.
+3. Judge the rendered-QA evidence for hierarchy, grouping, scanning, wrapping, states, and responsive composition. When it leaves a gap, name the gap and close it with `rendered-qa` technique.
+4. Report only meaningful findings, ranked by user impact. Do not invent a redesign or duplicate lint and automated accessibility output.
 
 A good review can conclude that no meaningful UI changes are needed.
 

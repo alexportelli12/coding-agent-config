@@ -1,7 +1,4 @@
 {
-  "documentation": {
-    "description": "Write and maintain concise documentation for AI agents"
-  },
   "ui-designer": {
     "description": "Design and implement repository-grounded UI with practical targeted rendered validation"
   },

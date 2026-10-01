@@ -30,7 +30,7 @@ Use this hierarchy when deciding where information or responsibility belongs:
 
 | Owner | Responsibility |
 | --- | --- |
-| `AGENTS.md` | Durable cross-project engineering judgement |
+| `AGENTS.md` | Durable cross-project engineering judgement and the default Git delivery policy |
 | Repository code, config, and docs | Repository-specific truth |
 | `repo-context` | Observational repository evidence |
 | Deterministic tooling and `verify` | Mechanical invariants, including implementation workspace and Git lifecycle safety |
@@ -157,13 +157,13 @@ targeted checks while implementing; they do not duplicate the full gauntlet.
 The orchestrator owns final verification. Independent reviewers run only when
 the change warrants them, and remediation loops remain bounded.
 
-For successful `/implement` execution, the orchestrator also owns routine
-delivery from the final green state through committing the intended change,
-pushing its feature branch, and creating a pull request. This delivery boundary
-must not bypass quality gates, include unrelated work, push feature work to the
-default branch, or merge the pull request. The human reviews the completed pull
-request, performs final product validation, requests further changes when
-needed, and decides whether and when to merge. `/implement` orchestrates the
+`AGENTS.md` owns the general Git delivery policy: agents deliver completed,
+green work as pull requests by default and never merge. For successful
+`/implement` execution, the orchestrator owns that delivery through the
+stricter isolated-worktree lifecycle below rather than the general policy.
+The human reviews the completed pull request, performs final product
+validation, requests further changes when needed, and decides whether and when
+to merge. `/implement` orchestrates the
 lifecycle; centralized tooling owns deterministic default-branch
 synchronization, session ownership, worktree isolation, safe history updates,
 and non-force feature-branch publication. `commit-pr-writing` owns specialist
@@ -175,15 +175,20 @@ worktree before repository work begins, and all subsequent feature operations
 remain there. The tool must fail closed rather than stash user state, reuse an
 ambiguously owned worktree, rewrite shared history, or guess through conflicts.
 Retain the workspace after pull-request creation so the owning session can make
-follow-up changes; PR-state-driven cleanup decides from authoritative GitHub
-state plus deterministic Git evidence that the implementation history is
-consumed by the remote default branch, protecting open, dirty, metadata-less,
-or unproven workspaces fail-closed.
+follow-up changes. Each `prepare` sweeps retained workspaces: PR-state-driven
+cleanup decides from authoritative GitHub state plus deterministic Git evidence
+that the implementation history is consumed by the remote default branch,
+protecting open, dirty, metadata-less, or unproven workspaces fail-closed.
 
-Transient evidence is not deliverable work: screenshots, rendered-inspection
-output, analysis documents, and temporary reports are written to a temporary
-directory inside the owned implementation worktree or a system temporary
-directory — never into the control checkout.
+Transient evidence is not deliverable work. Screenshots, recordings,
+rendered-inspection output, review background, and temporary reports go to the
+session's `evidenceDir` from `implementation-workspace prepare` or `info`,
+which lives beside the worktree so it never dirties the tree the lifecycle
+requires clean, or to a system temporary directory outside any workspace.
+Never write them into the control checkout or a worktree. Media a pull request
+should show is published by `implementation-workspace publish-media` to the
+repository's `pr-media` branch, never the feature branch, and cleanup removes
+it with the workspace.
 
 ## Session task contracts
 
@@ -214,7 +219,7 @@ hypothetical completeness. Classify a failure before adding an instruction:
 | Type, lint, or mechanical issue | `verify` tooling gap |
 | Repeated architecture violation | Architecture enforcement or reviewer gap |
 | Repeated Angular reasoning failure | Angular skill gap |
-| Visual, responsive, or usability miss | UI implementation or review gap |
+| Visual, responsive, or usability miss | UI implementation, `rendered-qa`, or review gap |
 | Contradictory instructions | Governance or ownership gap |
 | Repeated unnecessary agent work | Orchestration gap |
 

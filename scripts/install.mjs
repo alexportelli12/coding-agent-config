@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { access, chmod, lstat, mkdir, readFile, readdir, readlink, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, lstat, mkdir, readFile, readdir, readlink, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,8 +72,43 @@ export async function links({
   return entries;
 }
 
+// Claude Code links skills and agents one file at a time, so removing one from
+// the checkout leaves a dangling link behind. Only links that point into this
+// checkout are ours; anything else in these directories belongs to the user.
+export async function staleLinks({
+  home = os.homedir(),
+  claude = path.join(home, ".claude"),
+  checkout = root,
+} = {}) {
+  const owned = `${path.resolve(checkout)}${path.sep}`;
+  const stale = [];
+  for (const directory of [path.join(claude, "agents"), path.join(claude, "skills")]) {
+    let names;
+    try {
+      names = await readdir(directory);
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    for (const name of names) {
+      const link = path.join(directory, name);
+      if (!(await lstat(link)).isSymbolicLink()) continue;
+      const target = path.resolve(directory, await readlink(link));
+      if (!target.startsWith(owned)) continue;
+      try {
+        await access(target);
+      } catch (error) {
+        if (error.code === "ENOENT") stale.push(link);
+        else throw error;
+      }
+    }
+  }
+  return stale;
+}
+
 export async function install(options = {}) {
   const entries = await links(options);
+  const stale = await staleLinks(options);
   const pending = [];
   const conflicts = [];
   const hook = options.hookDirectory ? path.join(options.hookDirectory, "post-merge") : null;
@@ -103,8 +138,11 @@ export async function install(options = {}) {
     }
   }
   if (conflicts.length) throw new Error(`existing configuration differs; no changes made:\n${conflicts.join("\n")}`);
-  if (options.check && pending.length) throw new Error(`setup incomplete:\n${pending.map(([destination]) => destination).join("\n")}`);
+  if (options.check && (pending.length || stale.length)) {
+    throw new Error(`setup incomplete:\n${[...pending.map(([destination]) => destination), ...stale.map((link) => `${link} (stale)`)].join("\n")}`);
+  }
   if (!options.check) {
+    for (const link of stale) await unlink(link);
     for (const [destination, source] of pending) {
       await mkdir(path.dirname(destination), { recursive: true });
       if (destination === hook) {
@@ -117,7 +155,7 @@ export async function install(options = {}) {
       }
     }
   }
-  return { created: options.check ? 0 : pending.length, checked: entries.length };
+  return { created: options.check ? 0 : pending.length, removed: options.check ? 0 : stale.length, checked: entries.length };
 }
 
 function windowsWrapper(source) {

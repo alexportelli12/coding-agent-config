@@ -65,27 +65,20 @@ Do not turn every UI task into a redesign. Small, low-risk consistency improveme
 
 Do not load every reference by default.
 
-## Validate The Rendered Result
+## Self-Check The Rendered Result
 
-During implementation, inspect the actual rendered interface at representative
-viewport sizes when tooling permits. Use browser interaction and screenshots
-where practical; source code and CSS values alone cannot establish visual results.
-Write screenshots and inspection artifacts into a temporary directory inside
-the owned implementation worktree or a system temporary directory — never into
-the control checkout or the tracked tree.
-This targeted inspection supports implementation and does not replace
-the orchestrator's final verification or independent code review.
+While implementing, look at the actual render; source and CSS values alone
+cannot establish visual results. Load `rendered-qa` for technique and where
+evidence goes. Keep this a brief self-check of the primary journey at mobile
+and desktop widths:
 
-Check the primary journey first, then relevant states and realistic content. Confirm that:
+- the primary action and hierarchy remain obvious, and related elements stay
+  grouped;
+- relevant states and realistic, long, or missing content do not break the
+  task;
+- copy is clear, contrast is sufficient, and focus is visible.
 
-- the primary action and hierarchy remain obvious;
-- related elements are grouped and competing detail is quiet;
-- important information survives smaller viewports;
-- controls are recognisable and keyboard focus is visible;
-- relevant loading, error, success, selected, disabled, hover, active, and empty states work;
-- long, missing, wrapping, translated, and dynamic content do not break the task;
-- copy is clear, contrast is sufficient, and targets are comfortably actionable.
-
-Run targeted tests, linting, type checks, builds, or automated accessibility
-checks where relevant, but do not treat automation as a substitute for visual
-inspection or run the full repository validation gauntlet as delegated work.
+This supports implementation; it does not replace the orchestrator's rendered
+QA pass, final verification, or independent review. Run targeted tests or
+automated accessibility checks where relevant, but not the full repository
+gauntlet.
