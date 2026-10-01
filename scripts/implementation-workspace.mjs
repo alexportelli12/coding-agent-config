@@ -513,9 +513,9 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "ag
   return withRepositoryLock(repository.commonDirectory, async () => {
     const controlCleanHint = [
       "If the listed files are transient workflow artifacts (rendered-inspection",
-      "screenshots, analysis or report documents, temporary evidence), move them to a",
-      "temporary directory outside the control checkout, or into the affected",
-      "implementation worktree, before retrying. Review before removing anything;",
+      "screenshots, analysis or report documents, temporary evidence), move them to",
+      "the session's evidenceDir (see implementation-workspace info) or a system",
+      "temporary directory before retrying. Review before removing anything;",
       "do not delete untracked work you did not create.",
     ].join("\n");
     await assertClean(repository.root, "the control worktree", controlCleanHint);
