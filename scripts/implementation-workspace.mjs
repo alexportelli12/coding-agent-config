@@ -62,6 +62,7 @@ function run(command, args, options = {}) {
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: options.timeout,
     });
     const stdout = [];
     const stderr = [];
@@ -446,6 +447,13 @@ async function provisionEnvFiles(controlRoot, worktreePath) {
   return provisioned;
 }
 
+// Transient evidence (screenshots, recordings, reports) lives beside the
+// worktree rather than inside it: untracked files in the worktree would block
+// record-evidence, publish, and cleanup, which all require a clean tree.
+function evidenceDirectoryFor(worktreePath) {
+  return `${worktreePath}.evidence`;
+}
+
 function workspaceLeaf(slug, attempt) {
   const base = sanitizeSegment(slug, "change");
   if (attempt === 0) return base;
@@ -469,12 +477,15 @@ async function allocateWorkspace(repository, root, pushUrl, slug, prefix, baseSh
     if (await refExists(root, `refs/heads/${branch}`)) continue;
     if (await remoteBranchSha(root, pushUrl, branch)) continue;
     if (await pathExists(worktreePath)) continue;
+    if (await pathExists(evidenceDirectoryFor(worktreePath))) continue;
     return { sessionId, branch, worktreePath };
   }
   throw new WorkspaceError("could not allocate a collision-free branch and worktree path");
 }
 
 async function rollbackAllocatedWorkspace(root, allocation, baseSha) {
+  // Allocation proved the evidence directory did not exist, so it is ours.
+  await rm(evidenceDirectoryFor(allocation.worktreePath), { recursive: true, force: true }).catch(() => {});
   try {
     await git(root, ["worktree", "unlock", allocation.worktreePath], { allowedExitCodes: [0, 128] });
     await git(root, ["worktree", "remove", allocation.worktreePath], { allowedExitCodes: [0, 128] });
@@ -556,6 +567,7 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "ag
       );
     }
 
+    const cleanup = await sweepConsumedWorkspaces(repository);
     const baseSha = cleanOutput(await git(repository.root, ["rev-parse", "HEAD"]));
     const allocation = await allocateWorkspace(
       repository,
@@ -579,6 +591,8 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "ag
         baseSha,
       ]);
       const implementationRepository = await repositoryAt(allocation.worktreePath);
+      const evidenceDir = evidenceDirectoryFor(implementationRepository.root);
+      await mkdir(evidenceDir);
       const provisionedEnv = await provisionEnvFiles(repository.root, allocation.worktreePath);
       const now = new Date().toISOString();
       const metadata = {
@@ -612,7 +626,9 @@ export async function prepareWorkspace({ cwd = process.cwd(), slug, prefix = "ag
         remote: metadata.remote,
         defaultBranch: metadata.defaultBranch,
         baseSha: metadata.baseSha,
+        evidenceDir,
         provisionedEnv,
+        cleanup,
       };
     } catch (error) {
       await rollbackAllocatedWorkspace(repository.root, allocation, baseSha);
@@ -969,6 +985,8 @@ export async function publishWorkspace({ cwd = process.cwd(), sessionId }) {
         operation: "publish",
         published: false,
         requiresEvidence: true,
+        reason: "the remote default branch was integrated and changed the tree; prior evidence is stale",
+        nextAction: "Rerun npm run verify and any gate the integration could affect, commit remediation if needed, run record-evidence, then publish again.",
       };
     }
 
@@ -989,6 +1007,8 @@ export async function publishWorkspace({ cwd = process.cwd(), sessionId }) {
         published: false,
         requiresEvidence: true,
         headSha,
+        reason: "the current committed tree has no recorded evidence",
+        nextAction: "Run record-evidence once the gates pass for this commit, then publish again.",
       };
     }
     await updateMetadata(session, {
@@ -1093,6 +1113,7 @@ function workspaceSummary(entry) {
   return {
     sessionId: metadata.sessionId,
     worktreePath: metadata.worktreePath,
+    evidenceDir: evidenceDirectoryFor(metadata.worktreePath),
     branch: metadata.branch,
     state: metadata.state,
     prUrl: metadata.prUrl,
@@ -1136,9 +1157,12 @@ export async function workspaceInfo({ cwd = process.cwd(), sessionId }) {
       `session ${sessionId} owns more than one repository worktree; ownership is ambiguous`,
     );
   }
+  const summary = workspaceSummary(owned[0]);
+  // Sessions prepared before evidence directories existed get one on demand.
+  if (owned[0].worktreeExists) await mkdir(summary.evidenceDir, { recursive: true });
   return {
     operation: "info",
-    ...workspaceSummary(owned[0]),
+    ...summary,
   };
 }
 const PR_OPEN_STATES = new Set(["OPEN", "MERGED", "CLOSED"]);
@@ -1148,7 +1172,7 @@ async function pullRequestState(root, prUrl) {
     const result = await run(
       "gh",
       ["pr", "view", prUrl, "--json", "state,mergeCommit"],
-      { cwd: root },
+      { cwd: root, timeout: 30_000 },
     );
     let parsed;
     try {
@@ -1258,45 +1282,96 @@ async function cleanupStatus(entry, activeGitDirectory, repositoryRoot) {
   return { ...base, summary, decision: "remove", reason: `pull request ${state.toLowerCase()} and its history is confirmed consumed by the remote default branch`, prState: state };
 }
 
+async function removeWorkspace(root, status) {
+  await git(root, ["worktree", "unlock", status.worktreePath], {
+    allowedExitCodes: [0, 128],
+  });
+  await git(root, ["worktree", "remove", status.worktreePath]);
+  status.removed = true;
+  await rm(evidenceDirectoryFor(status.worktreePath), { recursive: true, force: true });
+  const branch = status.summary?.branch;
+  if (branch) {
+    // `-d` refuses branches with unmerged local commits, keeping them.
+    const branchDelete = await git(root, ["branch", "-d", branch], {
+      allowedExitCodes: [0, 1],
+    });
+    if (branchDelete.code === 0) {
+      status.branchDeleted = true;
+    } else {
+      status.branchRetained = true;
+      status.branchDiagnostic = branchDelete.stderr.trim();
+    }
+  }
+}
+
+// Callers hold the repository lock. Every per-workspace failure is reported as
+// a kept workspace so one unreadable entry never blocks the others.
+async function cleanupUnlocked(repository, { dryRun, activeGitDirectory }) {
+  const inspected = await inspectImplementationWorktrees(repository.commonDirectory);
+  const statuses = [];
+  for (const entry of inspected) {
+    try {
+      statuses.push(await cleanupStatus(entry, activeGitDirectory, repository.root));
+    } catch (error) {
+      statuses.push({
+        worktreePath: entry.worktreePath,
+        owned: Boolean(entry.metadata),
+        decision: "protect",
+        reason: `could not inspect workspace: ${error.message}`,
+      });
+    }
+  }
+
+  const deletable = statuses.filter((status) => status.decision === "remove");
+  if (!dryRun) {
+    for (const status of deletable) {
+      try {
+        await removeWorkspace(repository.root, status);
+      } catch (error) {
+        status.removalError = error.message;
+      }
+    }
+  }
+  return {
+    operation: "cleanup",
+    dryRun,
+    removedCount: statuses.filter((status) => status.removed).length,
+    results: statuses,
+  };
+}
+
 export async function cleanupWorkspaces({ cwd = process.cwd(), dryRun = true }) {
   const repository = await repositoryAt(cwd);
   return withRepositoryLock(repository.commonDirectory, async () => {
     const { gitDirectory: activeGitDirectory } = await currentInvocationWorktree();
-    const inspected = await inspectImplementationWorktrees(repository.commonDirectory);
-    const statuses = [];
-    for (const entry of inspected) {
-      statuses.push(await cleanupStatus(entry, activeGitDirectory, repository.root));
-    }
-
-    const deletable = statuses.filter((status) => status.decision === "remove");
-    if (!dryRun) {
-      for (const status of deletable) {
-        await git(repository.root, ["worktree", "unlock", status.worktreePath], {
-          allowedExitCodes: [0, 128],
-        });
-        await git(repository.root, ["worktree", "remove", status.worktreePath]);
-        status.removed = true;
-        const branch = status.summary?.branch;
-        if (branch) {
-          const branchDelete = await git(repository.root, ["branch", "-d", branch], {
-            allowedExitCodes: [0, 1],
-          });
-          if (branchDelete.code === 0) {
-            status.branchDeleted = true;
-          } else {
-            status.branchRetained = true;
-            status.branchDiagnostic = branchDelete.stderr.trim();
-          }
-        }
-      }
-    }
-    return {
-      operation: "cleanup",
-      dryRun,
-      removedCount: dryRun ? 0 : deletable.length,
-      results: statuses,
-    };
+    return cleanupUnlocked(repository, { dryRun, activeGitDirectory });
   });
+}
+
+// prepare runs this under its lock after fetching. It must never fail or block
+// preparation: any error simply means every workspace was kept.
+async function sweepConsumedWorkspaces(repository) {
+  try {
+    const result = await cleanupUnlocked(repository, {
+      dryRun: false,
+      activeGitDirectory: repository.gitDirectory,
+    });
+    const owned = result.results.filter((status) => status.summary || status.owned);
+    return {
+      removed: owned.filter((status) => status.removed).map((status) => ({
+        worktreePath: status.worktreePath,
+        branch: status.summary.branch,
+        branchDeleted: Boolean(status.branchDeleted),
+        ...(status.branchRetained ? { branchRetainedReason: status.branchDiagnostic || "branch has unmerged local commits" } : {}),
+      })),
+      kept: owned.filter((status) => !status.removed).map((status) => ({
+        worktreePath: status.worktreePath,
+        reason: status.removalError ? `removal failed: ${status.removalError}` : status.reason,
+      })),
+    };
+  } catch (error) {
+    return { removed: [], kept: [], error: error.message };
+  }
 }
 
 
