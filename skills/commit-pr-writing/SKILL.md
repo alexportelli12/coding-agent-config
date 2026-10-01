@@ -42,39 +42,57 @@ of the change.
 
 ## Pull Request Description
 
-Keep the description in plain English and normally short enough to fit on one
-screen. Adapt to a required repository template; otherwise use:
+Keep the description in plain English and short enough to fit on one screen.
+A repository pull-request template takes precedence; when one exists, fit these
+sections into it. Otherwise use:
 
 ```markdown
 ## What this solves
-
-<One to three short sentences explaining the problem, limitation, or need.>
+<One to three sentences: the problem, limitation, or need.>
 
 ## What changed
+<Optional single visual; see below.>
+- <Behavioural or product outcome.>
 
-- <Concise behavioural or product outcome.>
-- <Another meaningful outcome or safeguard when needed.>
+## How to check
+- <Route or entry point · action · expected result.>
 
-## QA / Requirements
+## Evidence
+- <Concrete proof; see below.>
+- Gates: verify ✓ · <rendered QA ✓> · <review ✓ (n findings resolved)>
 
-- <Observable action or result that determines whether the change works.>
-
-## Verification
-
-- <Very short summary of meaningful completed evidence.>
+## Merge danger
+**Door:** <one-way | two-way> · <why>
+**Blast radius:** <one word> · <what could break>
 ```
 
-Describe what users can now do, what behaviour changed, what limitation was
-removed, or what safeguard was introduced. Include a significant architectural
-outcome only when it materially helps the reviewer understand the change.
+**What changed** describes what users can now do, what behaviour changed, what
+limitation was removed, or what safeguard was introduced. Include an
+architectural outcome only when it materially helps the reviewer.
 
-Derive `QA / Requirements` primarily from the resolved acceptance criteria and
-implemented behaviour. State what a reviewer should try or observe, not an
-implementation checklist, and do not copy session notes verbatim.
+**Optional visual.** When the change is about structure or flow, one visual
+may replace prose: a shaped diff, call tree, component tree, file tree, or
+Mermaid diagram. Use at most one, and only when it explains faster than bullets.
+For UI changes the screenshot is the visual. (The idea comes from Matt Pocock's
+`pr` skill and Dex Horthy's `show-me`.)
 
-Summarise only meaningful completed quality evidence, such as `npm run verify`
-passing, rendered inspection, or applicable independent review. Do not unpack
-every command behind `verify` or paste logs.
+**How to check** comes from the resolved acceptance criteria: what a reviewer
+should try and what they should see, not an implementation checklist.
+
+**Evidence.** "Tests pass" is a claim, not evidence. For a behaviour change,
+name in plain language the test that now protects it, for example "a checkout
+test now fails if a discount takes the total below zero". For a UI change,
+state that rendered inspection was performed and what it covered. Do not claim
+or require fail-then-pass proof; the workflow is not test-first. The gates line
+lists only gates that actually ran; do not unpack `verify` or paste logs.
+
+**Merge danger** copies the independent reviewer's door verdict and blast
+radius. When no review ran, state your own assessment and mark it
+"self-assessed", using the door and blast-radius definitions in the
+`code-reviewer` agent.
+
+Put media for extra viewports or states in a collapsed `<details>` block so the
+description still fits on one screen.
 
 Avoid file-by-file changelogs, implementation inventories, unnecessary symbol
 names, internal state details, dependency mechanics, exhaustive background,
@@ -86,4 +104,4 @@ language.
 
 Ensure the copy is accurate to the final diff, makes no unsupported claims, and
 lets a busy reviewer understand in under a minute why the work was needed, what
-it achieves, what to validate, and whether the applicable quality gates passed.
+it achieves, how to check it, what proves it, and how dangerous it is to merge.

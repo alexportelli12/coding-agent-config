@@ -67,8 +67,18 @@ serious regression caused or exposed by remediation, a correctness or safety
 issue, or a genuinely blocking requirement failure. Do not promote unchanged
 lows or seek extra polish.
 
-Return to the orchestrator a concise result: mode, target, OCR selection
-(`total_files`, `reviewable_count`, `excluded_count` and reasons), selected
+Every discovery and confirmation result includes a merge-danger call, each
+part with a one-line justification:
+
+- **Door:** `one-way` when the change has destructive or hard-to-reverse
+  effects, such as migrations, data writes, public contract removal, or
+  anything that ships outward; otherwise `two-way`. Check the repository's
+  agent docs for a documented list of one-way doors and apply it.
+- **Blast radius:** one word for how far a defect could reach (for example
+  `isolated`, `feature`, `app-wide`, or `data`) and what could break.
+
+Return to the orchestrator a concise result: mode, target, merge danger, OCR
+selection (`total_files`, `reviewable_count`, `excluded_count` and reasons), selected
 entries reviewed or skipped with reasons, material coverage limits, each
 blocking ledger item's confirmation status when applicable, and
 evidence-based findings with severity (`critical`, `high`, `medium`, `low`),
