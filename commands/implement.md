@@ -199,11 +199,19 @@ the review gate leave no unresolved blockers.
    it. A review refresh is the `confirmation` pass; if that pass is already
    spent, stop and report instead. Commit any remediation, record evidence, and
    publish again.
-6. Use `commit-pr-writing` for the pull-request title and description. For
+6. When rendered QA produced screenshots or GIFs, publish the ones the pull
+   request should show with `implementation-workspace publish-media --session
+   "<sessionId>" --files "<comma-separated names in evidenceDir>"` and use the
+   returned URLs. First look at every file for secrets, tokens, personal or real
+   user data, and internal hostnames, and leave out any that show them: the
+   branch may be public, and later cleanup does not erase history. Republish on
+   follow-up delivery so the media stays current.
+   If media cannot be published, deliver anyway and say why in Evidence.
+7. Use `commit-pr-writing` for the pull-request title and description. For
    initial delivery, create the pull request with `gh` against `defaultBranch`.
    For follow-up delivery, update the existing pull request instead of
    creating another. Never merge it.
-7. Run `implementation-workspace mark-pr --session "<sessionId>" --url
+8. Run `implementation-workspace mark-pr --session "<sessionId>" --url
    "<pr-url>"`.
 
 If any delivery stage fails, preserve the worktree and any commit, and report

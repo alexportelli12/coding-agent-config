@@ -81,18 +81,40 @@ should try and what they should see, not an implementation checklist.
 
 **Evidence.** "Tests pass" is a claim, not evidence. For a behaviour change,
 name in plain language the test that now protects it, for example "a checkout
-test now fails if a discount takes the total below zero". For a UI change,
-state that rendered inspection was performed and what it covered. Do not claim
-or require fail-then-pass proof; the workflow is not test-first. The gates line
-lists only gates that actually ran; do not unpack `verify` or paste logs.
+test now fails if a discount takes the total below zero". For a UI change, the
+screenshots and GIFs are the evidence; name what rendered QA covered. If media
+could not be published, add one line saying why. Do not claim or require
+fail-then-pass proof; the workflow is not test-first. The gates line lists only
+gates that actually ran; do not unpack `verify` or paste logs.
+
+**UI media.** Embed the URLs from `implementation-workspace publish-media` in
+What changed, with alt text naming the route and viewport:
+
+```markdown
+| Before | After |
+| --- | --- |
+| ![Before: settings, desktop](<url>) | ![After: settings, desktop](<url>) |
+
+<details><summary>Mobile</summary>
+
+| Before | After |
+| --- | --- |
+| ![Before: settings, mobile](<url>) | ![After: settings, mobile](<url>) |
+
+</details>
+
+![Settings drawer opening, desktop](<gif-url>) · [original video](<video-url>)
+```
+
+Show desktop before/after in the open; put mobile and other viewports in
+`<details>`. New UI has no before column. Add the GIF only when the change has
+motion; link video files rather than embedding them. On follow-up delivery,
+refresh the media along with the rest of the description.
 
 **Merge danger** copies the independent reviewer's door verdict and blast
 radius. When no review ran, state your own assessment and mark it
 "self-assessed", using the door and blast-radius definitions in the
 `code-reviewer` agent.
-
-Put media for extra viewports or states in a collapsed `<details>` block so the
-description still fits on one screen.
 
 Avoid file-by-file changelogs, implementation inventories, unnecessary symbol
 names, internal state details, dependency mechanics, exhaustive background,

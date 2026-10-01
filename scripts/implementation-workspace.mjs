@@ -5,7 +5,9 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   access,
   copyFile,
+  lstat,
   mkdir,
+  mkdtemp,
   readdir,
   readFile,
   realpath,
@@ -1282,6 +1284,168 @@ async function cleanupStatus(entry, activeGitDirectory, repositoryRoot) {
   return { ...base, summary, decision: "remove", reason: `pull request ${state.toLowerCase()} and its history is confirmed consumed by the remote default branch`, prState: state };
 }
 
+const MEDIA_BRANCH = "pr-media";
+const MEDIA_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".webm"]);
+
+function githubRepository(url) {
+  const match = url.match(
+    /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|(?:ssh:\/\/)?git@github\.com[:/])([^/]+)\/([^/]+?)(?:\.git)?\/?$/i,
+  );
+  return match ? { owner: match[1], repo: match[2] } : null;
+}
+
+// The configured URL names the GitHub repository; `git remote get-url` would
+// expand insteadOf rewrites, which are transport plumbing.
+async function configuredGithubRepository(root, remote) {
+  for (const key of [`remote.${remote}.pushurl`, `remote.${remote}.url`]) {
+    const value = cleanOutput(await git(root, ["config", "--get", key], { allowedExitCodes: [0, 1] }));
+    if (value) return githubRepository(value);
+  }
+  return null;
+}
+
+// Commits to pr-media through a temporary index and pushes the commit without
+// creating local refs, so no checkout, branch, or working tree is touched.
+// Pushes are fast-forward only; a concurrent update triggers a rebuild.
+async function updateMediaBranch(root, pushUrl, message, mutateIndex) {
+  let lastDiagnostic = "";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parent = await remoteBranchSha(root, pushUrl, MEDIA_BRANCH)
+      ? await fetchBranch(root, pushUrl, MEDIA_BRANCH)
+      : null;
+    const indexDirectory = await mkdtemp(path.join(os.tmpdir(), "pr-media-index-"));
+    try {
+      const env = { GIT_INDEX_FILE: path.join(indexDirectory, "index") };
+      await git(root, parent ? ["read-tree", parent] : ["read-tree", "--empty"], { env });
+      await mutateIndex(env);
+      const tree = cleanOutput(await git(root, ["write-tree"], { env }));
+      if (parent && tree === cleanOutput(await git(root, ["rev-parse", `${parent}^{tree}`]))) {
+        return { commit: parent, changed: false };
+      }
+      const commit = cleanOutput(await git(root, [
+        "commit-tree",
+        tree,
+        ...(parent ? ["-p", parent] : []),
+        "-m",
+        message,
+      ]));
+      const push = await git(root, ["push", "--porcelain", pushUrl, `${commit}:refs/heads/${MEDIA_BRANCH}`], {
+        allowedExitCodes: [0, 1],
+      });
+      if (push.code === 0) return { commit, changed: true };
+      lastDiagnostic = redactEndpoint(push.stderr.trim() || push.stdout.trim());
+    } finally {
+      await rm(indexDirectory, { recursive: true, force: true });
+    }
+  }
+  throw new WorkspaceError(`could not update ${MEDIA_BRANCH} after repeated push rejections`, lastDiagnostic);
+}
+
+async function mediaFiles(evidenceDir, requested) {
+  const base = await canonicalPath(evidenceDir);
+  let candidates = requested;
+  if (!candidates.length) {
+    candidates = (await readdir(base, { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile() && MEDIA_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
+      .map((entry) => path.join(entry.parentPath ?? entry.path, entry.name));
+  }
+  const files = [];
+  const inside = (candidate) => candidate.startsWith(`${base}${path.sep}`);
+  for (const candidate of candidates) {
+    const requestedPath = path.resolve(base, candidate);
+    let resolved = null;
+    if (inside(requestedPath)) {
+      try {
+        resolved = await canonicalPath(requestedPath);
+      } catch (error) {
+        throw new WorkspaceError(`media file not found: ${candidate}`, error.message);
+      }
+    }
+    // Check both the requested path and its target so symlinks cannot escape.
+    if (!resolved || !inside(resolved)) {
+      throw new WorkspaceError(`refusing to publish a file outside evidenceDir: ${candidate}`);
+    }
+    if (!(await lstat(resolved)).isFile()) {
+      throw new WorkspaceError(`media path is not a file: ${candidate}`);
+    }
+    if (!MEDIA_EXTENSIONS.has(path.extname(resolved).toLowerCase())) {
+      throw new WorkspaceError(
+        `refusing to publish a non-media file: ${candidate}`,
+        `Allowed extensions: ${[...MEDIA_EXTENSIONS].join(", ")}`,
+      );
+    }
+    files.push({ absolute: resolved, relative: path.relative(base, resolved).split(path.sep).join("/") });
+  }
+  if (!files.length) throw new WorkspaceError("evidenceDir contains no media files to publish");
+  return files;
+}
+
+export async function publishMedia({ cwd = process.cwd(), sessionId, files: requested = [] }) {
+  const initial = await ownedSession(cwd, sessionId);
+  return withRepositoryLock(initial.repository.commonDirectory, async () => {
+    const { repository, metadata } = await ownedSession(cwd, sessionId);
+    const github = await configuredGithubRepository(repository.root, metadata.remote);
+    if (!github) {
+      throw new WorkspaceError(
+        "publish-media needs a GitHub remote to build embeddable URLs",
+        "Deliver the pull request without media and note why in its Evidence section.",
+      );
+    }
+    const files = await mediaFiles(evidenceDirectoryFor(metadata.worktreePath), requested);
+    const published = files.map((file) => ({ ...file, path: `${metadata.branch}/${file.relative}` }));
+    const { commit } = await updateMediaBranch(
+      repository.root,
+      metadata.pushUrl,
+      `Add PR media for ${metadata.branch}`,
+      async (env) => {
+        for (const file of published) {
+          const blob = cleanOutput(await git(repository.root, ["hash-object", "-w", "--no-filters", "--", file.absolute]));
+          await git(repository.root, ["update-index", "--add", "--cacheinfo", `100644,${blob},${file.path}`], { env });
+        }
+      },
+    );
+    const encode = (value) => value.split("/").map(encodeURIComponent).join("/");
+    // URLs pin the media commit rather than the branch tip: cleanup later drops
+    // the folder from the tip, and merged PR descriptions must keep rendering.
+    return {
+      operation: "publish-media",
+      mediaBranch: MEDIA_BRANCH,
+      commit,
+      files: published.map((file) => ({
+        file: file.relative,
+        path: file.path,
+        url: `https://github.com/${github.owner}/${github.repo}/blob/${commit}/${encode(file.path)}?raw=true`,
+      })),
+    };
+  });
+}
+
+// Best-effort: removes the media folders of removed workspaces in one additive
+// commit per publication endpoint. Failures are reported, never thrown.
+async function removeWorkspaceMedia(root, removedEntries) {
+  const byEndpoint = new Map();
+  for (const metadata of removedEntries) {
+    if (!metadata?.pushUrl || !metadata.branch) continue;
+    byEndpoint.set(metadata.pushUrl, [...(byEndpoint.get(metadata.pushUrl) ?? []), metadata.branch]);
+  }
+  const results = [];
+  for (const [pushUrl, branches] of byEndpoint) {
+    try {
+      if (!await remoteBranchSha(root, pushUrl, MEDIA_BRANCH)) continue;
+      const { changed } = await updateMediaBranch(
+        root,
+        pushUrl,
+        `Remove PR media for ${branches.join(", ")}`,
+        (env) => git(root, ["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ...branches], { env }),
+      );
+      results.push({ branches, removed: changed });
+    } catch (error) {
+      results.push({ branches, removed: false, error: error.message });
+    }
+  }
+  return results;
+}
+
 async function removeWorkspace(root, status) {
   await git(root, ["worktree", "unlock", status.worktreePath], {
     allowedExitCodes: [0, 128],
@@ -1323,6 +1487,7 @@ async function cleanupUnlocked(repository, { dryRun, activeGitDirectory }) {
   }
 
   const deletable = statuses.filter((status) => status.decision === "remove");
+  let media = [];
   if (!dryRun) {
     for (const status of deletable) {
       try {
@@ -1331,12 +1496,17 @@ async function cleanupUnlocked(repository, { dryRun, activeGitDirectory }) {
         status.removalError = error.message;
       }
     }
+    const removedMetadata = inspected
+      .filter((entry) => statuses.some((status) => status.removed && status.worktreePath === entry.worktreePath))
+      .map((entry) => entry.metadata);
+    media = await removeWorkspaceMedia(repository.root, removedMetadata);
   }
   return {
     operation: "cleanup",
     dryRun,
     removedCount: statuses.filter((status) => status.removed).length,
     results: statuses,
+    media,
   };
 }
 
@@ -1368,9 +1538,10 @@ async function sweepConsumedWorkspaces(repository) {
         worktreePath: status.worktreePath,
         reason: status.removalError ? `removal failed: ${status.removalError}` : status.reason,
       })),
+      media: result.media,
     };
   } catch (error) {
-    return { removed: [], kept: [], error: error.message };
+    return { removed: [], kept: [], media: [], error: error.message };
   }
 }
 
@@ -1407,11 +1578,16 @@ export async function main(args = process.argv.slice(2)) {
       result = await workspaceInfo({ sessionId: options.session });
     } else if (operation === "list") {
       result = await listWorkspaces({});
+    } else if (operation === "publish-media") {
+      result = await publishMedia({
+        sessionId: options.session,
+        files: options.files ? options.files.split(",").map((file) => file.trim()).filter(Boolean) : [],
+      });
     } else if (operation === "cleanup") {
       result = await cleanupWorkspaces({ dryRun: options["dry-run"] !== "false" });
     } else {
       throw new WorkspaceError(
-        "expected prepare, sync, record-evidence, publish, mark-pr, info, list, or cleanup",
+        "expected prepare, sync, record-evidence, publish, publish-media, mark-pr, info, list, or cleanup",
         "Usage: implementation-workspace prepare --slug <name> [--prefix <prefix>]",
       );
     }

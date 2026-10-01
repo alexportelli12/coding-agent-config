@@ -185,7 +185,10 @@ rendered-inspection output, review background, and temporary reports go to the
 session's `evidenceDir` from `implementation-workspace prepare` or `info`,
 which lives beside the worktree so it never dirties the tree the lifecycle
 requires clean, or to a system temporary directory outside any workspace.
-Never write them into the control checkout or a worktree.
+Never write them into the control checkout or a worktree. Media a pull request
+should show is published by `implementation-workspace publish-media` to the
+repository's `pr-media` branch, never the feature branch, and cleanup removes
+it with the workspace.
 
 ## Session task contracts
 

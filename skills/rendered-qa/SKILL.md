@@ -81,6 +81,22 @@ each one that is new or relevant to the change.
 screenshots for the affected UI, compare the render against them side by side
 and report material differences, not pixel noise.
 
+## Motion For Pull Requests
+
+When motion matters to the change, turn the recording into a GIF a pull request
+can embed: about 5–8 seconds, about 800px wide, under 10MB. For example:
+
+```bash
+ffmpeg -y -t 8 -i after-home-motion.webm \
+  -vf "fps=12,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" \
+  after-home-motion.gif
+```
+
+Lower the frame rate, width or duration if the file is too large. GitHub does
+not embed video files from a repository, so keep the original only as a link.
+If recording or `ffmpeg` is unavailable, fall back to a short sequence of
+screenshots and say so in the report.
+
 ## Before-Shots
 
 When asked to capture "before" evidence, take the same routes, states and
