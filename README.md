@@ -22,7 +22,7 @@ The agent gets to do the work. **Product decisions and merges stay with me.**
 * A green `npm run verify` before work starts and again before delivery.
 * Rendered QA across desktop, tablet and mobile, including animations, reduced motion, keyboard use and console errors.
 * PRs with before/after screenshots, GIFs for motion, the tests that protect the behaviour, and a call on how dangerous the merge is.
-* One configuration shared by [OpenCode](https://opencode.ai/) and [Claude Code](https://code.claude.com/).
+* One configuration shared by [OpenCode](https://opencode.ai/), [Claude Code](https://code.claude.com/), and [Codex CLI](https://developers.openai.com/codex/cli).
 
 ## The flow
 
@@ -65,9 +65,9 @@ Not every change needs every step. A one-line fix doesn't get an independent rev
 | Skill | [`workflow-for-alex`](skills/workflow-for-alex/SKILL.md) | Governance for changing this workflow |
 | Script | [`implementation-workspace`](scripts/implementation-workspace.mjs) | Worktree lifecycle: prepare, publish, PR media, cleanup |
 | Script | [`verify-runner`](scripts/verify.mjs) | Runs a repo's checks with quiet passes and full failure output |
-| Script | [`install.mjs`](scripts/install.mjs) | Links everything into both hosts |
+| Script | [`install.mjs`](scripts/install.mjs) | Links shared configuration into all three hosts |
 
-[`AGENTS.md`](AGENTS.md) holds the cross-project engineering principles, including when agents may branch, commit and open PRs. `opencode.json` and `claude/agents.json` hold the host-specific bits; `claude/agents/` is generated from `agent/` by `npm run agents:generate`.
+[`AGENTS.md`](AGENTS.md) holds the cross-project engineering principles, including when agents may branch, commit and open PRs. `opencode.json`, `claude/agents.json`, and `codex/agents.json` hold the host-specific bits. `npm run agents:generate` generates both hosts' agent definitions from `agent/`, plus Codex's explicit-invocation skill wrappers from `commands/`. `npm run verify` rejects stale generated files.
 
 ## Getting started
 
@@ -80,11 +80,21 @@ node scripts/install.mjs
 node scripts/install.mjs --check
 ```
 
-The installer links the shared files into `~/.config/opencode/` and `~/.claude/`, puts `verify-runner` and `implementation-workspace` in `~/.local/bin`, and adds a `post-merge` hook so a later `git pull` on `main` reinstalls automatically. It never overwrites existing configuration; on a conflict it stops and lists the paths. For Claude Code, add Playwright in user scope:
+The installer links the shared files into `~/.config/opencode/`, `~/.claude/`, and Codex's home (`~/.codex/`, or `CODEX_HOME` when set). Codex gets the shared `AGENTS.md` at its config root and generated TOML agents in `agents/`. Shared skills and generated command wrappers are linked individually into `~/.agents/skills/`, Codex's user skill discovery location; this stays under your home even with a custom `CODEX_HOME`. The installer puts `verify-runner` and `implementation-workspace` in `~/.local/bin` and adds a `post-merge` hook so a later `git pull` on `main` reinstalls automatically. It never overwrites existing configuration; on a conflict it stops and lists the paths. Your personal Codex `config.toml` is preserved, and the agent adapters inherit your model settings. The Codex reviewer defaults to a read-only sandbox; Codex's parent runtime permission overrides still take precedence.
+
+For Claude Code, add Playwright in user scope:
 
 ```bash
 claude mcp add --scope user playwright -- npx -y @playwright/mcp@latest --headless --isolated
 ```
+
+For Codex, configure the same MCP server in user scope:
+
+```bash
+codex mcp add playwright -- npx -y @playwright/mcp@latest --headless --isolated
+```
+
+Start a new Codex session after installation. A non-empty `AGENTS.override.md` in Codex's home takes precedence over the installed `AGENTS.md`; remove your override when you want the shared guidance. Invoke command wrappers explicitly as `$workflow-implement <request>`, `$workflow-qa <request>`, `$workflow-update-my-workflow <request>`, or `$workflow-ux-principles <request>`. These use the canonical command bodies with the invocation's request as their arguments; ordinary skills retain their existing names. Codex discovers skills through `/skills` or `$` and agents from its `agents/` directory. Unlike OpenCode and Claude's slash commands, these wrappers use Codex's native skill invocation.
 
 **An app repo needs one thing:** an `npm run verify` script that defines "mechanically healthy" for that project (lint, types, tests, whatever fits). Nothing host-specific.
 

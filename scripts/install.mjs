@@ -38,6 +38,8 @@ export async function links({
   home = os.homedir(),
   opencode = path.join(home, ".config/opencode"),
   claude = path.join(home, ".claude"),
+  codex = path.join(home, ".codex"),
+  codexSkills = path.join(home, ".agents/skills"),
   bin = path.join(home, ".local/bin"),
   checkout = root,
 } = {}) {
@@ -49,6 +51,7 @@ export async function links({
     [path.join(opencode, "agent"), path.join(checkout, "agent")],
     [path.join(claude, "CLAUDE.md"), path.join(checkout, "AGENTS.md")],
     [path.join(claude, "commands"), path.join(checkout, "commands")],
+    [path.join(codex, "AGENTS.md"), path.join(checkout, "AGENTS.md")],
   ];
   const skillNames = (await readdir(path.join(checkout, "skills"), { withFileTypes: true }))
     .filter((entry) => entry.isDirectory() && entry.name !== "synced")
@@ -61,6 +64,7 @@ export async function links({
       throw error;
     }
     entries.push([path.join(claude, "skills", name), path.join(checkout, "skills", name)]);
+    entries.push([path.join(codexSkills, name), path.join(checkout, "skills", name)]);
   }
   for (const name of Object.keys(JSON.parse(await readFile(path.join(checkout, "claude/agents.json"), "utf8")))) {
     entries.push([path.join(claude, "agents", `${name}.md`), path.join(checkout, "claude", "agents", `${name}.md`)]);
@@ -69,20 +73,28 @@ export async function links({
     const executable = process.platform === "win32" ? `${name}.cmd` : name;
     entries.push([path.join(bin, executable), path.join(checkout, "scripts", executable)]);
   }
+  for (const name of Object.keys(JSON.parse(await readFile(path.join(checkout, "codex/agents.json"), "utf8")))) {
+    entries.push([path.join(codex, "agents", `${name}.toml`), path.join(checkout, "codex/agents", `${name}.toml`)]);
+  }
+  for (const name of await readdir(path.join(checkout, "codex/skills"))) {
+    entries.push([path.join(codexSkills, name), path.join(checkout, "codex/skills", name)]);
+  }
   return entries;
 }
 
-// Claude Code links skills and agents one file at a time, so removing one from
+// Host adapters link skills and agents individually, so removing one from
 // the checkout leaves a dangling link behind. Only links that point into this
 // checkout are ours; anything else in these directories belongs to the user.
 export async function staleLinks({
   home = os.homedir(),
   claude = path.join(home, ".claude"),
+  codex = path.join(home, ".codex"),
+  codexSkills = path.join(home, ".agents/skills"),
   checkout = root,
 } = {}) {
   const owned = `${path.resolve(checkout)}${path.sep}`;
   const stale = [];
-  for (const directory of [path.join(claude, "agents"), path.join(claude, "skills")]) {
+  for (const directory of [path.join(claude, "agents"), path.join(claude, "skills"), path.join(codex, "agents"), codexSkills]) {
     let names;
     try {
       names = await readdir(directory);
@@ -151,7 +163,7 @@ export async function install(options = {}) {
       } else if (process.platform === "win32" && destination.endsWith(".cmd")) {
         await writeFile(destination, windowsWrapper(source), { flag: "wx" });
       } else {
-        await symlink(source, destination, process.platform === "win32" && !source.endsWith(".md") && !source.endsWith(".json") ? "junction" : undefined);
+        await symlink(source, destination, process.platform === "win32" && !source.endsWith(".md") && !source.endsWith(".json") && !source.endsWith(".toml") ? "junction" : undefined);
       }
     }
   }
@@ -174,7 +186,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (!(process.env.PATH || "").split(path.delimiter).some((entry) => path.resolve(entry) === bin)) {
       throw new Error(`${bin} is not on PATH; add it to your shell/CI environment before installing`);
     }
-    const result = await install({ check: process.argv.includes("--check"), hookDirectory: hookDirectory() });
+    const result = await install({
+      check: process.argv.includes("--check"), hookDirectory: hookDirectory(),
+      codex: process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : undefined,
+    });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
