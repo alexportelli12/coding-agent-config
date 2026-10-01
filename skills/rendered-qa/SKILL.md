@@ -48,6 +48,12 @@ host's video option) or a trace. Otherwise sample frames: take screenshots
 roughly every 100ms through the animation. Look for jank, content that never
 arrives, elements stuck mid-transition, and motion that obscures content.
 
+Through the Playwright MCP, open a separate context from
+`page.context().browser()` with `recordVideo` pointed at a system temporary
+directory, close the context, then call `video.saveAs()` with an absolute path
+in `evidenceDir`. The MCP browser may run remotely, so `video.path()` is not
+available, and raw recordings should not mix with publishable evidence.
+
 **Hydration and layout shift.** For server-rendered apps, capture the page as
 early as possible and again after it settles; compare them and watch a
 recording for flashes of unstyled, wrong or missing content. Measure layout
