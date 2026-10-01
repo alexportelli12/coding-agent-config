@@ -54,10 +54,10 @@ security, error handling, performance, tests and repository conventions. For
 meaningful user-facing changes, also judge frontend implementation,
 accessibility, responsive behaviour, interaction and UX consistency against
 acceptance criteria, product UX principles, established design patterns, and
-rendered evidence. Load `ui-designer` and its relevant review guidance only
-when UI judgement helps; inspect the affected render with available browser
-tooling when evidence is insufficient. Do not impose UI analysis on unrelated
-changes.
+the supplied rendered-QA evidence. Load `ui-designer` and its relevant review
+guidance only when UI judgement helps. Re-render only to close a gap you name
+in your result, using `rendered-qa` for technique. Do not impose UI analysis
+on unrelated changes.
 
 In `confirmation`, repeat delegation preview and rule resolution on the current
 target. Check each accepted blocking ledger item against the current code and

@@ -46,12 +46,11 @@ Infer the mode from the task and keep its boundary clear.
 - Choose the simplest coherent interface that supports the user's goal and meaningful edge cases.
 - Reuse existing components, tokens, copy conventions, and responsive patterns wherever practical.
 - Prefer incremental improvements unless the user explicitly requests a redesign.
-- Make requested changes directly. Use targeted checks useful to the work and,
-  when browser tooling is available, inspect the rendered flow at representative
-  mobile and desktop viewport sizes. Do not run the full repository validation
-  gauntlet as delegated work; the orchestrator owns final `npm run verify`.
-- Write rendered-inspection screenshots and other transient artifacts to the
-  session's `evidenceDir`, never into a worktree or the control checkout.
+- Make requested changes directly. Use targeted checks useful to the work,
+  including a brief rendered self-check of the primary journey at mobile and
+  desktop widths; `rendered-qa` covers technique and where evidence goes. Do
+  not run the full repository validation gauntlet; the orchestrator owns final
+  `npm run verify` and the rendered QA pass.
 - Fix meaningful implementation issues you find and re-check them. This is
   implementation validation, not the independent final UI judgement gate.
 

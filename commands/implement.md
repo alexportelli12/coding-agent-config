@@ -77,6 +77,10 @@ do not begin implementation or classify failures as pre-existing. The worktree
 is retained for diagnosis, and cleanup protects it because no pull request was
 recorded.
 
+When the change will alter existing UI, capture before-shots now, while the
+worktree is still at `baseSha`: load `rendered-qa` and follow its before-shots
+section for the affected routes. Skip this for new UI.
+
 ## Implementation
 
 The contract defines intent and scope. Resolve ordinary choices from
@@ -110,15 +114,15 @@ Then re-read the original request and active contract, and inspect the final
 diff to confirm the acceptance criteria and scope are covered. This is the
 run's requirements re-read; later stages rely on it.
 
-## Rendered UI Inspection
+## Rendered QA
 
-For meaningful user-facing work, after deterministic verification perform a
-proportional browser inspection of the affected routes and states: meaningful
-interactions, representative desktop and mobile layouts, console errors,
-responsive failures, and relevant accessibility. Save evidence to
-`evidenceDir`. Do not commit screenshots or pixel baselines, and do not present
-subjective hierarchy, usability, or product intent as deterministic
-verification.
+For meaningful user-facing work, after final verification load `rendered-qa`
+and run a proportional pass on the affected routes and states. That one pass
+produces the evidence the reviewer and the pull request use. Resolve its
+`critical`, `high`, and `medium` findings before review, rerunning
+`npm run verify` and refreshing the affected evidence when code changes. Do not
+commit screenshots or pixel baselines, and do not present subjective
+judgement as deterministic verification.
 
 ## Independent Review
 
@@ -126,7 +130,7 @@ Invoke `code-reviewer` in `discovery` mode when independent judgement
 materially improves confidence: substantial behavioural, architectural,
 integration, security, maintainability, or meaningful user-facing changes.
 Small mechanical changes need no review merely because the agent exists. Run
-rendered inspection first when applicable.
+rendered QA first when applicable.
 
 1. Write a background file in `evidenceDir`, within 8,000 characters: the
    request's purpose, resolved requirements and acceptance criteria, relevant
@@ -136,7 +140,7 @@ rendered inspection first when applicable.
 2. Invoke `code-reviewer` with the worktree, the review target (workspace
    changes against HEAD before the first commit, the branch range once fully
    committed, or only the new changes on follow-up), the background file path,
-   verification status, and rendered evidence. The reviewer owns the OCR
+   verification status, and rendered QA evidence. The reviewer owns the OCR
    delegation mechanics.
 3. If the reviewer reports relevant tests or specs excluded from its
    selection, add narrowly scoped `include` rules to the repository's
@@ -176,7 +180,7 @@ confirmation.
 
 ## Delivery
 
-Enter only after final `npm run verify`, applicable rendered inspection, and
+Enter only after final `npm run verify`, applicable rendered QA, and
 the review gate leave no unresolved blockers.
 
 1. Inspect worktree status and the full diff. Stage only intended changes;

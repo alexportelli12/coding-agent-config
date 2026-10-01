@@ -216,7 +216,7 @@ hypothetical completeness. Classify a failure before adding an instruction:
 | Type, lint, or mechanical issue | `verify` tooling gap |
 | Repeated architecture violation | Architecture enforcement or reviewer gap |
 | Repeated Angular reasoning failure | Angular skill gap |
-| Visual, responsive, or usability miss | UI implementation or review gap |
+| Visual, responsive, or usability miss | UI implementation, `rendered-qa`, or review gap |
 | Contradictory instructions | Governance or ownership gap |
 | Repeated unnecessary agent work | Orchestration gap |
 
