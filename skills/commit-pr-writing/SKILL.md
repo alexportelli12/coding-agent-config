@@ -42,88 +42,153 @@ of the change.
 
 ## Pull Request Description
 
-Keep the description in plain English and short enough to fit on one screen.
-A repository pull-request template takes precedence; when one exists, fit these
-sections into it. Otherwise use:
+Let a reviewer grasp the purpose and main outcomes within 30 seconds. Start
+with what changed and why it matters, in one or two short sentences. Use the
+application's user-facing language (and its glossary when available); explain
+specialised terms only when they are essential. For architecture work, name
+the capability or boundary gained before describing the machinery.
+
+Ground the description in the full final diff against the PR's actual base,
+including all commits, and the verified evidence. Session plans explain intent,
+not what shipped. On subsequent delivery, rewrite the title and body to match
+the current whole PR; remove superseded claims, checks and media rather than
+appending an update diary. `/implement` owns posting and media publication.
+
+### Shape The Description
+
+Normally aim for about 100–200 words of main-body prose, plus a useful visual.
+This is a guide, not a quota: a straightforward change can be shorter; important
+risks or evidence limits can need more. Do not move essential information out
+of sight just to meet a word count.
+
+Use the smallest structure that explains the change. Follow a repository's
+template when present, keeping each answer concise and checkboxes honest.
+Otherwise, this is a starting shape, not a form to fill mechanically:
 
 ```markdown
-## What this solves
-<One to three sentences: the problem, limitation, or need.>
+<Outcome and why it matters.>
 
-## What changed
-<Optional single visual; see below.>
-- <Behavioural or product outcome.>
+**Important:** <Material limitation, deployment action or hard-to-reverse effect,
+when present. Keep it above long media.>
 
-## How to check
-- <Route or entry point · action · expected result.>
+<Focused visual or a few outcome bullets, only if the lead needs them.>
 
 ## Evidence
-- <Concrete proof; see below.>
-- Gates: verify ✓ · <rendered QA ✓> · <review ✓ (n findings resolved)>
+- <Most useful verified result and any material coverage limit.>
+- <Gates that actually ran.>
 
-## Merge danger
-**Door:** <one-way | two-way> · <why>
-**Blast radius:** <one word> · <what could break>
+**Check:** <Entry point · action · expected result, when useful for human review.>
+
+**Risk / rollback:** <What could break and how to undo it; see below.>
 ```
 
-**What changed** describes what users can now do, what behaviour changed, what
-limitation was removed, or what safeguard was introduced. Include an
-architectural outcome only when it materially helps the reviewer.
+Choose the two or three outcomes that define the PR, rather than compressing
+every implementation bullet into a dense paragraph. Keep the lead about the
+result; tests, symbols, timeout values and build wiring belong elsewhere only
+when they change a review decision.
 
-**Optional visual.** When the change is about structure or flow, one visual
-may replace prose: a shaped diff, call tree, component tree, file tree, or
-Mermaid diagram. Use at most one, and only when it explains faster than bullets.
-For UI changes the screenshot is the visual. (The idea comes from Matt Pocock's
-`pr` skill and Dex Horthy's `show-me`.)
+Avoid repeating the lead in bullets. Omit empty sections, generic assurances,
+routine implementation details, low-value findings, and file-by-file inventories.
+Do not repeat the diff, logs, planning documents or session history. Link an
+existing relevant artifact or use `<details>` only for genuinely useful supporting
+depth; do not create a report just to give the description somewhere to link.
 
-**How to check** comes from the resolved acceptance criteria: what a reviewer
-should try and what they should see, not an implementation checklist.
+### Choose What To Show
 
-**Evidence.** "Tests pass" is a claim, not evidence. For a behaviour change,
-name in plain language the test that now protects it, for example "a checkout
-test now fails if a discount takes the total below zero". For a UI change, the
-screenshots and GIFs are the evidence; name what rendered QA covered. If media
-could not be published, add one line saying why. Do not claim or require
-fail-then-pass proof; the workflow is not test-first. The gates line lists only
-gates that actually ran; do not unpack `verify` or paste logs.
+Prefer showing when it reduces the explanation, not because a PR needs decoration.
+Pick the smallest view that answers the reviewer's question:
 
-**UI media.** Embed the URLs from `implementation-workspace publish-media` in
-What changed, with alt text naming the route and viewport:
+| Change / question | Best starting format |
+| --- | --- |
+| Existing UI: what looks or works differently? | Actual before/after screenshots of the affected state |
+| New UI: what can I use? | Focused screenshot of the new feature |
+| Relationships, ownership boundaries or flow | Small Mermaid diagram with domain labels |
+| Conditional behaviour: when does each outcome happen? | Simple decision table or short pseudocode |
+| Straightforward fix, configuration or wording | Brief text; no visual needed |
+
+Use one primary visual by default. Add another only when it answers a different,
+important question faster than prose. Replace the explanation it makes redundant.
+Keep diagrams shallow, with only the participants, branches and labels needed to
+explain this change. Distinguish current from intended/future behaviour. Avoid
+symbol-heavy trees, code dumps and miniature diffs that make the reader decode
+the implementation. A diagram explains design; it does not prove execution.
+
+**UI media.** Embed URLs returned by `implementation-workspace publish-media`;
+capture and publishing safety stay with `rendered-qa` and `/implement`. Choose
+the route, state and viewport that best shows the outcome—mobile first for a
+phone-first task. Keep that comparison in the open, near the lead; link or
+collapse secondary states and viewports only when useful. For example:
 
 ```markdown
 | Before | After |
 | --- | --- |
-| ![Before: settings, desktop](<url>) | ![After: settings, desktop](<url>) |
+| ![Before: settings, desktop](<before-url>) | ![After: settings, desktop](<after-url>) |
 
 <details><summary>Mobile</summary>
 
 | Before | After |
 | --- | --- |
-| ![Before: settings, mobile](<url>) | ![After: settings, mobile](<url>) |
+| ![Before: settings, mobile](<before-mobile-url>) | ![After: settings, mobile](<after-mobile-url>) |
 
 </details>
-
-![Settings drawer opening, desktop](<gif-url>) · [original video](<video-url>)
 ```
 
-Show desktop before/after in the open; put mobile and other viewports in
-`<details>`. New UI has no before column. Add the GIF only when the change has
-motion; link video files rather than embedding them. On follow-up delivery,
-refresh the media along with the rest of the description.
+Pair actual before/after captures at comparable routes, states, viewports and
+data. Do not fabricate a before-shot or label a mockup as the running UI; if a
+pair is unavailable, show the verified after-state and state the limit. New UI
+needs no before column. Alt text names the state and viewport; a short caption
+explains what to notice. Include a GIF only when motion or an interaction is
+part of the outcome, not for every animated element. Link original videos
+rather than embedding them. If relevant media cannot be published, say why
+briefly in Evidence without treating an unavailable capture as proof.
 
-**Merge danger** copies the independent reviewer's door verdict and blast
-radius. When no review ran, state your own assessment and mark it
-"self-assessed", using the door and blast-radius definitions in the
-`code-reviewer` agent.
+### Evidence And Material Risks
 
-Avoid file-by-file changelogs, implementation inventories, unnecessary symbol
-names, internal state details, dependency mechanics, exhaustive background,
-generic filler, repeated title prose, and explanations of obvious code
-mechanics. Use technical terminology only when it is the clearest concise
-language.
+Give the most useful proof in plain language: the behaviour a test protects,
+what rendered QA exercised, or an observed result with its scope. For example,
+"Checkout tests cover discounts that would make the total negative." List only
+gates that ran, such as `verify ✓ · rendered QA ✓ · review ✓`; do not unpack
+`verify`, paste logs, or count routine findings resolved. Distinguish automated
+tests, manual observations and unrun checks. Do not invent fail-then-pass proof
+or infer a passing test from a changed spec. State sampling or environment
+limits when they affect confidence; local counts are not production estimates,
+and infrastructure failures do not prove behavioural parity. Preserve what a
+measurement actually counted; do not broaden a sample result into a guarantee.
+
+When useful, give the shortest human check derived from acceptance criteria:
+entry point, action and expected result. Link longer existing instructions
+rather than recreating a test plan.
+
+Preserve the independent reviewer's door and blast-radius assessment from
+`code-reviewer`, translating it into a concise **Risk / rollback** line: scope
+of possible failure, reversibility and the real undo path. When no review ran,
+mark it "self-assessed" and use that agent's definitions. Do not equate a code
+revert with undoing data writes, migrations or an already-deployed change.
+Material risks, compatibility breaks, required deployment actions and important
+verification gaps stay visible in the main body. If they affect whether to
+merge or use the feature, put them immediately after the lead, above media;
+do not bury them in collapsed details or duplicate them at the bottom.
+
+The visual-selection approach adapts [Matt Pocock's `pr`](https://github.com/mattpocock/skills/blob/main/skills/engineering/pr/SKILL.md)
+and [Dex Horthy's `show-me`](https://github.com/humanlayer/skills/blob/main/plugins/show-me/skills/show-me/SKILL.md).
+Final-diff grounding and refreshing the whole description adapt
+[TanStack AI's PR-description guidance](https://github.com/TanStack/ai/blob/main/.agents/skills/pr-description/SKILL.md).
 
 ## Final Check
 
-Ensure the copy is accurate to the final diff, makes no unsupported claims, and
-lets a busy reviewer understand in under a minute why the work was needed, what
-it achieves, how to check it, what proves it, and how dangerous it is to merge.
+Read the title and body as a busy human reviewer, then perform this editing
+pass before posting (do not print the checklist in the PR):
+
+- Can the first 30 seconds tell me what changed and why it matters?
+- Does each visual simplify a specific question, with readable labels and
+  honest before/after evidence, rather than duplicate text or expose internals?
+- Are the most important verification result, unrun checks and merge risks easy
+  to find without expanding anything?
+- Can jargon, headings, repeated facts or routine detail be removed without
+  losing meaning? Is remaining technical detail necessary for a review decision?
+- Do the title, outcomes, claims, links, media and rollback advice still match
+  the final whole-PR diff and actual evidence after the latest changes?
+
+If the draft is still dense, select fewer facts rather than packing more into
+each sentence. Move material risks above media, use available actual before/after
+pairs, and remove numerical or technical detail that does not help the decision.
