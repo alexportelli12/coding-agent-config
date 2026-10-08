@@ -3,5 +3,8 @@
   "scripts": {
     "verify": "node scripts/check-config.mjs && node --test scripts/*.test.mjs skills/repo-context/tests/*.test.js",
     "agents:generate": "node scripts/generate-claude-agents.mjs --write && node scripts/generate-codex.mjs --write"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.33"
   }
 }
