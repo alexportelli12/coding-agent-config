@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/verifika/schemas/verifika.schema.json",
+  "version": 1,
+  "changes": {
+    "invalidateAll": ["package.json", "package-lock.json"]
+  },
+  "checks": {
+    "config": { "command": "node scripts/check-config.mjs" },
+    "workspace": {
+      "command": "node --test scripts/implementation-workspace.test.mjs",
+      "paths": ["scripts/implementation-workspace*"]
+    },
+    "repo-context": {
+      "command": "node --test skills/repo-context/tests/inspect.test.js",
+      "paths": ["skills/repo-context/**"]
+    },
+    "integration": {
+      "command": "node --test scripts/integration.test.mjs",
+      "dependsOn": ["config"]
+    }
+  }
+}

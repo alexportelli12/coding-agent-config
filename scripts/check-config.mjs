@@ -55,12 +55,23 @@ export async function check(base = root) {
     assert.ok(destination && source);
     await access(source);
   }
-  for (const name of ["verify-runner", "implementation-workspace"]) {
-    const script = path.join(base, "scripts", name);
-    if (process.platform !== "win32") assert.ok((await stat(script)).mode & 0o111, `${name} is not executable`);
+  if (process.platform !== "win32") {
+    assert.ok((await stat(path.join(base, "scripts/implementation-workspace"))).mode & 0o111, "implementation-workspace is not executable");
   }
   const pkg = JSON.parse(await readFile(path.join(base, "package.json"), "utf8"));
-  assert.ok(pkg.scripts.verify, "the configuration must expose npm run verify");
+  assert.equal(pkg.scripts.verify, "verifika --all", "npm run verify must run every Verifika check");
+  assert.match(pkg.devDependencies?.verifika ?? "", /^\d+\.\d+\.\d+$/, "Verifika must be pinned to an exact version");
+  const verifika = JSON.parse(await readFile(path.join(base, "verifika.config.json"), "utf8"));
+  assert.ok((verifika.defaults?.concurrency ?? 1) === 1, "Verifika checks run sequentially until concurrency is shown to be safe");
+  // A test file no check names would silently drop out of the delivery gate.
+  const commands = Object.values(verifika.checks).map((entry) => entry.command);
+  const tests = [
+    ...(await readdir(path.join(base, "scripts"))).filter((name) => name.endsWith(".test.mjs")).map((name) => `scripts/${name}`),
+    ...(await readdir(path.join(base, "skills/repo-context/tests"))).filter((name) => name.endsWith(".test.js")).map((name) => `skills/repo-context/tests/${name}`),
+  ];
+  for (const test of tests) {
+    assert.ok(commands.some((command) => command.split(/\s+/).includes(test)), `${test} is not run by any Verifika check`);
+  }
   assert.ok(!JSON.stringify(config).includes("verify-env"), "OpenCode must not own the shared PATH");
 }
 

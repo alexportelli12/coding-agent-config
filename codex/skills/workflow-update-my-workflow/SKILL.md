@@ -49,7 +49,8 @@ other appropriate owner instead.
 ## Reconcile Host Installation
 
 After a workflow change passes this repository's `npm run verify`, run
-`node scripts/install.mjs` from the **primary configuration checkout**, then
+`npm ci` (when dependencies changed) and `node scripts/install.mjs` from the
+**primary configuration checkout**, then
 `node scripts/install.mjs --check`. Also do this on a no-change audit to catch
 missing links. This is the installation step for all supported hosts and the shared
 executables; do not make application repositories handle it.

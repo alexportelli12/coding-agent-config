@@ -121,11 +121,15 @@ baseline before implementation and a green final result afterward. Do not
 duplicate repository-specific checks in global prose or add project tooling
 from this configuration.
 
-Shared deterministic tooling may suppress captured output for successful checks
-while preserving diagnostics for failures. This reporting policy belongs to the
-tooling, not to agent instructions. `npm run verify` remains the only repository
-quality gate agents invoke; implementation lifecycle commands separately
-enforce workspace and Git safety.
+[Verifika](https://github.com/alexportelli12/verifika) is the recommended
+verification engine, and the one this configuration uses: a repository lists
+its checks in `verifika.config.json` and backs `npm run verify` with
+`verifika --all`. Verifika owns check execution, selection, output, process
+handling, and logs; its published `verifika` skill, installed from the pinned
+npm package, owns how agents run it and read its results. Do not restate either
+here. Selective runs are implementation feedback; `npm run verify` remains the
+only delivery gate, and implementation lifecycle commands separately enforce
+workspace and Git safety.
 
 Metrics such as CRAP score and duplication are bounded signals, not global
 ideology. Prefer scoped or differential enforcement where practical, calibrate
