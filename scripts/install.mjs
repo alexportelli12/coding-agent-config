@@ -66,13 +66,16 @@ export async function links({
     entries.push([path.join(claude, "skills", name), path.join(checkout, "skills", name)]);
     entries.push([path.join(codexSkills, name), path.join(checkout, "skills", name)]);
   }
+  // Verifika's agent skill ships with the pinned npm package, so hosts track
+  // the installed CLI version instead of a copy maintained here.
+  const verifikaSkill = path.join(checkout, "node_modules/verifika/skills/verifika");
+  entries.push([path.join(claude, "skills", "verifika"), verifikaSkill]);
+  entries.push([path.join(codexSkills, "verifika"), verifikaSkill]);
   for (const name of Object.keys(JSON.parse(await readFile(path.join(checkout, "claude/agents.json"), "utf8")))) {
     entries.push([path.join(claude, "agents", `${name}.md`), path.join(checkout, "claude", "agents", `${name}.md`)]);
   }
-  for (const name of ["verify-runner", "implementation-workspace"]) {
-    const executable = process.platform === "win32" ? `${name}.cmd` : name;
-    entries.push([path.join(bin, executable), path.join(checkout, "scripts", executable)]);
-  }
+  const workspaceExecutable = process.platform === "win32" ? "implementation-workspace.cmd" : "implementation-workspace";
+  entries.push([path.join(bin, workspaceExecutable), path.join(checkout, "scripts", workspaceExecutable)]);
   for (const name of Object.keys(JSON.parse(await readFile(path.join(checkout, "codex/agents.json"), "utf8")))) {
     entries.push([path.join(codex, "agents", `${name}.toml`), path.join(checkout, "codex/agents", `${name}.toml`)]);
   }
@@ -82,7 +85,7 @@ export async function links({
   return entries;
 }
 
-// Host adapters link skills and agents individually, so removing one from
+// Host adapters are linked individually, so removing one from
 // the checkout leaves a dangling link behind. Only links that point into this
 // checkout are ours; anything else in these directories belongs to the user.
 export async function staleLinks({
@@ -90,10 +93,26 @@ export async function staleLinks({
   claude = path.join(home, ".claude"),
   codex = path.join(home, ".codex"),
   codexSkills = path.join(home, ".agents/skills"),
+  bin = path.join(home, ".local/bin"),
   checkout = root,
 } = {}) {
   const owned = `${path.resolve(checkout)}${path.sep}`;
   const stale = [];
+  // ~/.local/bin is shared with the user's own tools, so only the retired
+  // verify-runner is considered there: the link we created, or on Windows the
+  // wrapper we generated, while its content is exactly what we wrote.
+  const retiredLink = path.join(bin, "verify-runner");
+  try {
+    if (path.resolve(bin, await readlink(retiredLink)) === path.join(checkout, "scripts", "verify-runner")) stale.push(retiredLink);
+  } catch (error) {
+    if (!["ENOENT", "EINVAL", "UNKNOWN"].includes(error.code)) throw error;
+  }
+  const retiredWrapper = path.join(bin, "verify-runner.cmd");
+  try {
+    if (await readFile(retiredWrapper, "utf8") === windowsWrapper(path.join(checkout, "scripts", "verify.mjs"))) stale.push(retiredWrapper);
+  } catch (error) {
+    if (error.code !== "ENOENT" && error.code !== "EISDIR") throw error;
+  }
   for (const directory of [path.join(claude, "agents"), path.join(claude, "skills"), path.join(codex, "agents"), codexSkills]) {
     let names;
     try {
@@ -125,12 +144,17 @@ export async function install(options = {}) {
   const conflicts = [];
   const hook = options.hookDirectory ? path.join(options.hookDirectory, "post-merge") : null;
   for (const [destination, source] of entries) {
-    await access(source);
+    await access(source).catch((error) => {
+      if (error.code === "ENOENT" && source.includes(`${path.sep}node_modules${path.sep}`)) {
+        throw new Error(`${source} is missing; run npm ci in the configuration checkout first`);
+      }
+      throw error;
+    });
     try {
       const info = await lstat(destination);
       if (path.resolve(destination) === path.resolve(source)) continue;
       if (process.platform === "win32" && destination.endsWith(".cmd")) {
-        if (await readFile(destination, "utf8") !== windowsWrapper(source)) conflicts.push(destination);
+        if (await readFile(destination, "utf8") !== windowsWrapper(source.replace(/\.cmd$/, ".mjs"))) conflicts.push(destination);
       } else if (!info.isSymbolicLink() || path.resolve(path.dirname(destination), await readlink(destination)) !== source) {
         conflicts.push(destination);
       }
@@ -161,7 +185,7 @@ export async function install(options = {}) {
         await writeFile(destination, postMergeHook, { flag: "wx", mode: 0o755 });
         await chmod(destination, 0o755);
       } else if (process.platform === "win32" && destination.endsWith(".cmd")) {
-        await writeFile(destination, windowsWrapper(source), { flag: "wx" });
+        await writeFile(destination, windowsWrapper(source.replace(/\.cmd$/, ".mjs")), { flag: "wx" });
       } else {
         await symlink(source, destination, process.platform === "win32" && !source.endsWith(".md") && !source.endsWith(".json") && !source.endsWith(".toml") ? "junction" : undefined);
       }
@@ -170,10 +194,9 @@ export async function install(options = {}) {
   return { created: options.check ? 0 : pending.length, removed: options.check ? 0 : stale.length, checked: entries.length };
 }
 
-function windowsWrapper(source) {
+function windowsWrapper(module) {
   // A symlinked .cmd sees the link's directory as %~dp0, not the script's.
-  const moduleName = path.basename(source) === "verify-runner.cmd" ? "verify.mjs" : "implementation-workspace.mjs";
-  return `@echo off\r\nnode "${path.join(path.dirname(source), moduleName)}" %*\r\n`;
+  return `@echo off\r\nnode "${module}" %*\r\n`;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

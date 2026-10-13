@@ -98,15 +98,21 @@ repository has no suitable infrastructure, stop and report the gap rather than
 introducing a framework as incidental work.
 
 Delegated agents may run targeted checks useful to their work, such as a focused
-test, typecheck, or rendered check. They do not own final verification and must
-not run the full repository gauntlet.
+test, typecheck, rendered check, or the repository's selective verification.
+They do not own final verification and must not run the full repository
+gauntlet. A selective pass is feedback, never a substitute for the final gate.
+Where the repository uses Verifika, delegated agents run `vfk --changed` or
+`vfk --check <name>`; the `verifika` skill's full run before delivery is the
+orchestrator's final `npm run verify`.
 
 ## Final Verification
 
 When implementation is settled, use the repository's intentional auto-fix
 mechanism if one exists, then run `npm run verify`. This is the authoritative
 final deterministic gate. A failure means the implementation is incomplete:
-remediate implementation-caused failures and rerun it. Never weaken repository
+diagnose it from the failing checks' output and logs (the `verifika` skill
+covers this where the repository uses Verifika), remediate
+implementation-caused failures, and rerun it. Never weaken repository
 safeguards to pass. Any later code remediation requires another full
 `npm run verify`.
 

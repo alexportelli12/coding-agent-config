@@ -63,8 +63,8 @@ Not every change needs every step. A one-line fix doesn't get an independent rev
 | Skill | [`playwright-tests`](skills/playwright-tests/SKILL.md) | Resilient Playwright UI tests |
 | Skill | [`skill-creator`](skills/skill-creator/SKILL.md) | Creating and evaluating skills |
 | Skill | [`workflow-for-alex`](skills/workflow-for-alex/SKILL.md) | Governance for changing this workflow |
+| Skill | [`verifika`](https://github.com/alexportelli12/verifika/blob/main/skills/verifika/SKILL.md) | Running and diagnosing Verifika checks; linked from the pinned npm package |
 | Script | [`implementation-workspace`](scripts/implementation-workspace.mjs) | Worktree lifecycle: prepare, publish, PR media, cleanup |
-| Script | [`verify-runner`](scripts/verify.mjs) | Runs a repo's checks with quiet passes and full failure output |
 | Script | [`install.mjs`](scripts/install.mjs) | Links shared configuration into all three hosts |
 
 [`AGENTS.md`](AGENTS.md) holds the cross-project engineering principles, including when agents may branch, commit and open PRs. `opencode.json`, `claude/agents.json`, and `codex/agents.json` hold the host-specific bits. `npm run agents:generate` generates both hosts' agent definitions from `agent/`, plus Codex's explicit-invocation skill wrappers from `commands/`. `npm run verify` rejects stale generated files.
@@ -76,11 +76,12 @@ Not every change needs every step. A one-line fix doesn't get an independent rev
 Put `~/.local/bin` on your `PATH`, then from a checkout of this repo on `main`:
 
 ```bash
+npm ci
 node scripts/install.mjs
 node scripts/install.mjs --check
 ```
 
-The installer links the shared files into `~/.config/opencode/`, `~/.claude/`, and Codex's home (`~/.codex/`, or `CODEX_HOME` when set). Codex gets the shared `AGENTS.md` at its config root and generated TOML agents in `agents/`. Shared skills and generated command wrappers are linked individually into `~/.agents/skills/`, Codex's user skill discovery location; this stays under your home even with a custom `CODEX_HOME`. The installer puts `verify-runner` and `implementation-workspace` in `~/.local/bin` and adds a `post-merge` hook so a later `git pull` on `main` reinstalls automatically. It never overwrites existing configuration; on a conflict it stops and lists the paths. Your personal Codex `config.toml` is preserved, and the agent adapters inherit your model settings. The Codex reviewer defaults to a read-only sandbox; Codex's parent runtime permission overrides still take precedence.
+The installer links the shared files into `~/.config/opencode/`, `~/.claude/`, and Codex's home (`~/.codex/`, or `CODEX_HOME` when set). Codex gets the shared `AGENTS.md` at its config root and generated TOML agents in `agents/`. Shared skills, Verifika's skill from `node_modules`, and generated command wrappers are linked individually into `~/.agents/skills/`, Codex's user skill discovery location; this stays under your home even with a custom `CODEX_HOME`. The installer puts `implementation-workspace` in `~/.local/bin`, removes the retired `verify-runner` link it used to install, and adds a `post-merge` hook so a later `git pull` on `main` reinstalls automatically. It never overwrites existing configuration; on a conflict it stops and lists the paths. Your personal Codex `config.toml` is preserved, and the agent adapters inherit your model settings. The Codex reviewer defaults to a read-only sandbox; Codex's parent runtime permission overrides still take precedence.
 
 For Claude Code, add Playwright in user scope:
 
@@ -96,7 +97,7 @@ codex mcp add playwright -- npx -y @playwright/mcp@latest --headless --isolated
 
 Start a new Codex session after installation. A non-empty `AGENTS.override.md` in Codex's home takes precedence over the installed `AGENTS.md`; remove your override when you want the shared guidance. Invoke command wrappers explicitly as `$workflow-implement <request>`, `$workflow-qa <request>`, `$workflow-update-my-workflow <request>`, or `$workflow-ux-principles <request>`. These use the canonical command bodies with the invocation's request as their arguments; ordinary skills retain their existing names. Codex discovers skills through `/skills` or `$` and agents from its `agents/` directory. Unlike OpenCode and Claude's slash commands, these wrappers use Codex's native skill invocation.
 
-**An app repo needs one thing:** an `npm run verify` script that defines "mechanically healthy" for that project (lint, types, tests, whatever fits). Nothing host-specific.
+**An app repo needs one thing:** an `npm run verify` script that defines "mechanically healthy" for that project (lint, types, tests, whatever fits). Nothing host-specific. The recommended way is [Verifika](https://github.com/alexportelli12/verifika): list the checks in `verifika.config.json` and set `"verify": "verifika --all"`, as this repo does. Agents can then run only the checks a change affects while they work, and read compact failures and per-check logs.
 
 **A first command to try**, from the app repo's default branch:
 

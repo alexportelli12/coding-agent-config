@@ -1,10 +1,13 @@
 {
   "private": true,
   "scripts": {
-    "verify": "node scripts/check-config.mjs && node --test scripts/*.test.mjs skills/repo-context/tests/*.test.js",
+    "verify": "verifika --all",
     "agents:generate": "node scripts/generate-claude-agents.mjs --write && node scripts/generate-codex.mjs --write"
   },
   "dependencies": {
     "@opencode-ai/plugin": "1.18.33"
+  },
+  "devDependencies": {
+    "verifika": "0.0.2"
   }
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { cp, lstat, mkdir, mkdtemp, readFile, symlink, writeFile, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, symlink, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { check } from "./check-config.mjs";
 import { syncCodex } from "./generate-codex.mjs";
 
 const checkout = fileURLToPath(new URL("../", import.meta.url));
+const verifikaCli = path.join(checkout, "node_modules/verifika/dist/cli.js");
 
 function execute(command, args, cwd, env = process.env) {
   return new Promise((resolve, reject) => {
@@ -22,25 +23,17 @@ function execute(command, args, cwd, env = process.env) {
   });
 }
 
-test("shared setup is idempotent and exposes npm verification in an application", async (t) => {
+test("shared setup is idempotent and installs the pinned Verifika skill", async (t) => {
   const home = await mkdtemp(path.join(os.tmpdir(), "coding-agent-install-"));
   t.after(() => rm(home, { recursive: true, force: true }));
   const options = { home, checkout, hookDirectory: path.join(home, "git-hooks") };
   assert.ok((await install(options)).created > 0);
   assert.equal((await install(options)).created, 0);
   await install({ ...options, check: true });
-  const app = path.join(home, "app");
-  // Install above creates only the parent, not an application repository.
-  await mkdir(app);
-  await writeFile(path.join(app, "package.json"), JSON.stringify({
-    scripts: { verify: "verify-runner --check smoke smoke", smoke: "node -e \"process.stdout.write('ok')\"" },
-  }));
-  const bin = path.join(home, ".local/bin");
-  const result = await execute(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "verify"], app, {
-    ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-  });
-  assert.equal(result.code, 0, result.output);
-  assert.match(result.output, /VERIFY PASSED - 1\/1/);
+  const verifikaSkill = await readFile(path.join(checkout, "node_modules/verifika/skills/verifika/SKILL.md"), "utf8");
+  assert.equal(await readFile(path.join(home, ".claude/skills/verifika/SKILL.md"), "utf8"), verifikaSkill);
+  assert.equal(await readFile(path.join(home, ".agents/skills/verifika/SKILL.md"), "utf8"), verifikaSkill);
+  assert.deepEqual(await readdir(path.join(home, ".local/bin")), [process.platform === "win32" ? "implementation-workspace.cmd" : "implementation-workspace"]);
   assert.match(await readFile(path.join(home, ".claude/CLAUDE.md"), "utf8"), /senior engineering deputy/);
   assert.equal(await readFile(path.join(home, ".codex/AGENTS.md"), "utf8"), await readFile(path.join(checkout, "AGENTS.md"), "utf8"));
   assert.equal(await readFile(path.join(home, ".agents/skills/workflow-for-alex/SKILL.md"), "utf8"), await readFile(path.join(checkout, "skills/workflow-for-alex/SKILL.md"), "utf8"));
@@ -77,6 +70,88 @@ test("setup removes only dangling links it created for retired agents and skills
   await assert.rejects(lstat(retiredCommand), /ENOENT/);
   assert.ok((await lstat(foreignCodex)).isSymbolicLink());
   await install({ ...options, check: true });
+});
+
+test("setup retires verify-runner links it installed and keeps user-owned files", async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "coding-agent-retired-runner-"));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const options = { home, checkout, hookDirectory: path.join(home, "git-hooks") };
+  const bin = path.join(home, ".local/bin");
+  await mkdir(bin, { recursive: true });
+  // What earlier versions installed: a POSIX link and a Windows wrapper.
+  await symlink(path.join(checkout, "scripts/verify-runner"), path.join(bin, "verify-runner"));
+  await writeFile(path.join(bin, "verify-runner.cmd"), `@echo off\r\nnode "${path.join(checkout, "scripts/verify.mjs")}" %*\r\n`);
+
+  await assert.rejects(install({ ...options, check: true }), /verify-runner \(stale\)/);
+  assert.equal((await install(options)).removed, 2);
+  await assert.rejects(lstat(path.join(bin, "verify-runner")), /ENOENT/);
+  await assert.rejects(lstat(path.join(bin, "verify-runner.cmd")), /ENOENT/);
+  assert.equal((await install(options)).removed, 0);
+  await install({ ...options, check: true });
+
+  // Same names, but not ours: a personal script, an edited wrapper and a link elsewhere.
+  await writeFile(path.join(bin, "verify-runner"), "#!/bin/sh\necho mine\n");
+  await writeFile(path.join(bin, "verify-runner.cmd"), "@echo off\r\necho mine\r\n");
+  await symlink(path.join(home, "elsewhere"), path.join(bin, "vfk"));
+  // A personal link into the checkout is still the user's, even when dangling.
+  await symlink(path.join(checkout, "node_modules/.bin/missing"), path.join(bin, "personal"));
+  assert.equal((await install(options)).removed, 0);
+  await install({ ...options, check: true });
+  assert.ok((await lstat(path.join(bin, "personal"))).isSymbolicLink());
+  assert.equal(await readFile(path.join(bin, "verify-runner"), "utf8"), "#!/bin/sh\necho mine\n");
+  assert.equal(await readFile(path.join(bin, "verify-runner.cmd"), "utf8"), "@echo off\r\necho mine\r\n");
+  assert.ok((await lstat(path.join(bin, "vfk"))).isSymbolicLink());
+});
+
+test("setup explains a missing Verifika install instead of linking a partial skill set", async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "coding-agent-no-modules-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  for (const directory of ["agent", "claude", "codex", "commands", "scripts", "skills"]) {
+    await cp(path.join(checkout, directory), path.join(base, directory), { recursive: true });
+  }
+  for (const file of ["AGENTS.md", "opencode.json"]) await cp(path.join(checkout, file), path.join(base, file));
+  const home = path.join(base, "home");
+  await assert.rejects(install({ home, checkout: base }), /node_modules.*missing; run npm ci/);
+  await assert.rejects(lstat(home), /ENOENT/);
+});
+
+test("the repository verify script is Verifika's full run of every configured check", async () => {
+  const pkg = JSON.parse(await readFile(path.join(checkout, "package.json"), "utf8"));
+  assert.equal(pkg.scripts.verify, "verifika --all");
+  const config = JSON.parse(await readFile(path.join(checkout, "verifika.config.json"), "utf8"));
+  const result = await execute(process.execPath, [verifikaCli, "plan", "--all", "--mode", "json"], checkout);
+  assert.equal(result.code, 0, result.output);
+  const plan = JSON.parse(result.output);
+  assert.deepEqual(plan.checks.filter((entry) => entry.selected).map((entry) => entry.name), Object.keys(config.checks));
+  assert.deepEqual(plan.checks.find((entry) => entry.name === "integration").dependsOn, ["config"]);
+});
+
+test("Verifika reports passing and failing checks with persisted logs", async (t) => {
+  const app = await mkdtemp(path.join(os.tmpdir(), "coding-agent-verifika-"));
+  t.after(() => rm(app, { recursive: true, force: true }));
+  const verifika = (...args) => execute(process.execPath, [verifikaCli, ...args, "--mode", "agent"], app);
+  const configure = (checks) => writeFile(path.join(app, "verifika.config.json"), JSON.stringify({ version: 1, checks }));
+  // Node keeps the commands portable across sh and cmd.exe.
+  const node = (source) => `node -e "${source}"`;
+
+  await configure({ smoke: { command: node("console.log('ok')") } });
+  const passed = await verifika("--all");
+  assert.equal(passed.code, 0, passed.output);
+  assert.match(passed.output, /^PASS 1\/1 /);
+
+  await configure({
+    config: { command: node("console.error('generated agent is stale'); process.exit(3)") },
+    integration: { command: node("console.log('ran')"), dependsOn: ["config"] },
+  });
+  const failed = await verifika("--all");
+  assert.equal(failed.code, 1, failed.output);
+  assert.match(failed.output, /^FAIL /);
+  assert.match(failed.output, /config: exit 3/);
+  assert.match(failed.output, /generated agent is stale/);
+  assert.match(failed.output, /integration: dependency config did not pass/);
+  assert.match(failed.output, /logs config/);
+  const logs = await execute(process.execPath, [verifikaCli, "logs", "config"], app);
+  assert.match(logs.output, /generated agent is stale/);
 });
 
 test("setup refuses conflicts without changing unrelated configuration", async (t) => {
@@ -154,6 +229,23 @@ test("a fast-forward pull invokes the installed post-merge hook", async (t) => {
 
 test("configuration checks canonical prompts and generated adapters", async () => {
   await check(checkout);
+});
+
+test("configuration rejects a verify gate that would skip tests", async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "coding-agent-gate-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  for (const directory of ["agent", "claude", "codex", "commands", "scripts", "skills"]) {
+    await cp(path.join(checkout, directory), path.join(base, directory), { recursive: true });
+  }
+  for (const file of ["AGENTS.md", "opencode.json", "package.json", "verifika.config.json"]) await cp(path.join(checkout, file), path.join(base, file));
+  await symlink(path.join(checkout, "node_modules"), path.join(base, "node_modules"), process.platform === "win32" ? "junction" : undefined);
+  await check(base);
+  await writeFile(path.join(base, "scripts/retired.test.mjs"), "");
+  await assert.rejects(check(base), /scripts\/retired\.test\.mjs is not run by any Verifika check/);
+  await rm(path.join(base, "scripts/retired.test.mjs"));
+  const pkg = JSON.parse(await readFile(path.join(base, "package.json"), "utf8"));
+  await writeFile(path.join(base, "package.json"), JSON.stringify({ ...pkg, scripts: { ...pkg.scripts, verify: "verifika" } }));
+  await assert.rejects(check(base), /npm run verify must run every Verifika check/);
 });
 
 test("Codex generation keeps command bodies canonical and detects drift", async (t) => {
