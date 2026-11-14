@@ -73,10 +73,9 @@ reads separately from the code fixes.
 
 **Fix, never weaken.** Fix a failure at its cause. Disabling a lint rule,
 skipping or deleting a test, loosening types or lowering a threshold is not a
-fix. If a failure cannot be fixed without a product decision, ask. In an
-unattended run follow `/wettaq`'s **Unattended runs** rule: take the most
-reasonable reading, fix it and record it as an assumption; stop and report only
-for a one-way door.
+fix. When a failure needs a product decision, follow `/wettaq`'s **Decide and
+record** rule: take the most reasonable reading, fix it and record it; stop and
+ask only for a one-way door or product direction.
 
 ## Prove It
 

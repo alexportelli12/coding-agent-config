@@ -94,24 +94,29 @@ Before changing code:
    decisions, observable behaviour and experience acceptance criteria, real
    constraints, and relevant edge cases. Omit categories that add no value.
 
-Repository evidence and established product principles are the first source of
-answers. Ask the user only about genuine unresolved product behaviour, UX
-intent, business rules, architectural choices with product consequences, or
-important edge cases that cannot be inferred, with the fewest focused questions
-necessary. Do not stop for approval of the contract when the request and
-evidence are sufficient, or ask the user to choose ordinary implementation
-details. Keep the contract lean: no generic repository context, framework
-tutorials, file lists, implementation steps, or speculative abstractions.
+Keep the contract lean: no generic repository context, framework tutorials,
+file lists, implementation steps, or speculative abstractions.
 
-**Unattended runs.** When nobody can answer (a scheduled or non-interactive
-run, or a question left unanswered for the session), do not stall. Take the
-most reasonable reading from repository evidence and product principles, note
-it as an assumption, and carry on. Still stop and report for a one-way door: a
-destructive or irreversible data change, a security or privacy decision, a
-public API or schema break, or anything the pull request cannot undo. List
-every assumption under **Decisions and assumptions** in the pull request,
-worded so the reviewer can reverse it cheaply; a question that would have
-changed the design becomes a decision under **Your part** instead of a stall.
+**Decide and record.** Repository evidence and established product principles
+answer questions first. Every run, attended or not, decides each reversible
+choice itself: take the most reasonable reading, carry on, and list it under
+**Decisions and assumptions** in the pull request, worded so the reviewer can
+reverse it cheaply. Never ask permission for work the request already asks
+for, and never offer a menu of options; pick one and record why. Stop and ask
+only for:
+
+- a **one-way door**: a destructive or irreversible data change, a security or
+  privacy decision, a public API or schema break, or anything the pull request
+  cannot undo; or
+- **product direction** that neither the request nor the principles settle.
+
+Ask those in one focused message. When nobody answers, take the safest reading,
+record it as a decision under **Your part**, and carry on only while the pull
+request can still undo it.
+
+**Wait inside the turn.** Never end your turn while a background job this run
+started is still running; wait for its completion inside the turn, then carry
+on.
 
 ## Preflight: Green Before Work
 

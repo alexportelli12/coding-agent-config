@@ -134,10 +134,9 @@ how it was seen failing, and what was deliberately left untested) goes in
 Details, one line per test; a break no available test level could reach goes
 in Gaps. A coverage percentage is never proof.
 
-**Decisions and assumptions.** When the run was unattended, or a question went
-unanswered, list each assumption: the open question, the reading taken, and how
-to reverse it. Also list deviations from the request the author was not asked
-for. A question that would have changed the design goes in **Your part** as a
+**Decisions and assumptions.** List each reversible choice the run made
+without asking: the open question, the reading taken, and how to reverse it.
+Also list deviations from the request the author was not asked for. A question that would have changed the design goes in **Your part** as a
 decision instead.
 
 ### Choose What To Show

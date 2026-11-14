@@ -91,6 +91,7 @@ its architecture, and follow them:
 - [0018 Setup and verify wait for one of a few machine-wide slots](docs/decisions/0018-machine-wide-run-slots.md)
 - [0019 Setup and verify run in a systemd scope where one can start](docs/decisions/0019-runs-in-a-systemd-scope.md)
 - [0022 Retire Jev triage and cross-family review](docs/decisions/0022-retire-jev-and-cross-family-review.md)
+- [0023 Runs decide reversible choices and record them](docs/decisions/0023-decide-and-record.md)
 
 To change a decision, add a new record that supersedes it and change only the
 old record's status; never rewrite its reasoning.
