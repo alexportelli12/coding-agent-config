@@ -207,7 +207,7 @@
       }
     },
     "forge": {
-      "description": "Which code forge a repository's pull requests, CI state, issues and media URLs come from: GitHub through gh, GitLab through glab. github.com and gitlab.com are known; a repository can name its own with \"forge\" in its committed .mexxi.json, which wins over this group. A remote on any other host has no forge, and the steps that need one fail or skip with the reason.",
+      "description": "Which code forge a repository's pull requests, CI state and media URLs come from: GitHub through gh, GitLab through glab. github.com and gitlab.com are known; a repository can name its own with \"forge\" in its committed .mexxi.json, which wins over this group. A remote on any other host has no forge, and the steps that need one fail or skip with the reason.",
       "why": "mexxi has to know whether a repository lives on GitHub or GitLab to open its pull requests and read its CI.",
       "type": "object",
       "additionalProperties": false,

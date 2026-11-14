@@ -26,7 +26,8 @@ const CONFIGURATION_GUIDE = "docs/configuration-guide.md";
 
 // What each skill is for; every skill names one in `metadata.group`.
 const SKILL_GROUPS = {
-  run: { title: "The run itself", text: "What a `/wettaq` run loads along the way: mapping the repository, checking the UI in a browser, the independent review and the pull request." },
+  run: { title: "The run itself", text: "What a `/wettaq` run loads along the way: test design, checking the UI in a browser, the independent review and the pull request." },
+  repository: { title: "Understanding a repository", text: "A map of a whole repository, for work that needs one first, such as `/lesti`'s audit." },
   ui: { title: "UI work", text: "Design judgement and tests for interfaces, loaded when a change has a UI. Some are for one stack only." },
   setup: { title: "Setup", text: "Installing, repairing and upgrading mexxi itself." },
   mexxi: { title: "Working on mexxi", text: "For changing mexxi: its docs, its rules and its skills." },
@@ -73,11 +74,6 @@ const CLI_GROUPS = [
     title: "Commands you might run",
     text: "You might run these yourself now and then, to see what a run left behind or to continue a pull request from a new session.",
     names: ["list", "info", "cleanup", "stats", "adopt"],
-  },
-  {
-    title: "Only in some setups",
-    text: "This runs only when the browser check suggests checks worth filing as issues.",
-    names: ["file-qa-checks"],
   },
 ];
 

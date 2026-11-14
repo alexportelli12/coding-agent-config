@@ -2201,80 +2201,6 @@ test("prepare refuses a .mexxi.json whose verify command it cannot trust", async
   assert.equal(list.json.workspaces.length, 0);
 });
 
-// A gh stand-in that keeps labels and issues in a JSON file, and logs what it
-// was asked to create.
-async function issueGhStub(t, { labels = [], issues = [] } = {}) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "mexxi-issue-gh-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  const state = path.join(directory, "state.json");
-  await writeFile(state, JSON.stringify({ labels, issues, created: [] }));
-  await writeFile(path.join(directory, "gh"), `#!${process.execPath}
-const fs = require("node:fs");
-const state = JSON.parse(fs.readFileSync(${JSON.stringify(state)}, "utf8"));
-const args = process.argv.slice(2);
-const value = (flag) => args[args.indexOf(flag) + 1];
-const save = () => fs.writeFileSync(${JSON.stringify(state)}, JSON.stringify(state));
-const [group, action] = args;
-if (value("--repo") !== "acme/widgets") { console.error("gh stub: no --repo acme/widgets in " + args.join(" ")); process.exit(4); }
-if (group === "label" && action === "list") console.log(JSON.stringify(state.labels.map((name) => ({ name }))));
-else if (group === "label" && action === "create") { state.labels.push(args[2]); save(); }
-else if (group === "issue" && action === "list") {
-  if (value("--label") !== "qa-check" || value("--state") !== "all") process.exit(3);
-  console.log(JSON.stringify(state.issues.map((title) => ({ title }))));
-} else if (group === "issue" && action === "create") {
-  if (value("--label") !== "qa-check") process.exit(3);
-  state.issues.push(value("--title")); state.created.push({ title: value("--title"), body: value("--body") }); save();
-  console.log("https://github.com/example/app/issues/" + (100 + state.issues.length));
-} else { console.error("gh stub: unexpected " + args.join(" ")); process.exit(1); }
-`);
-  await chmod(path.join(directory, "gh"), 493);
-  return { directory, env: { PATH: `${directory}:${process.env.PATH ?? ""}` }, read: async () => JSON.parse(await readFile(state, "utf8")) };
-}
-
-test("file-qa-checks files each suggestion as a qa-check issue, creating the label and skipping duplicates", async (t) => {
-  const fixture = await createFixture(t);
-  // The stub refuses any call without --repo acme/widgets, the remote's repository.
-  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "qa checks" });
-  const { sessionId, evidenceDir } = prepared.json;
-  const from = path.join(evidenceDir, "qa-checks.txt");
-  await writeFile(from, "- Fail on console errors at every route\n\n2. Assert no horizontal overflow at 390px\n* assert no horizontal overflow at  390px\n");
-
-  const gh = await issueGhStub(t, { issues: ["Fail on console errors at every route"] });
-  // Run from the evidence directory: the session is found from its metadata.
-  const first = await lifecycle(fixture, evidenceDir, "file-qa-checks", { session: sessionId, from }, [0], gh.env);
-  assert.deepEqual(first.json.created.map((issue) => issue.title), ["Assert no horizontal overflow at 390px"]);
-  assert.match(first.json.created[0].url, /issues\/\d+$/);
-  assert.deepEqual(first.json.skipped, ["Fail on console errors at every route", "assert no horizontal overflow at  390px"]);
-  const state = await gh.read();
-  assert.deepEqual(state.labels, ["qa-check"]);
-  assert.equal(state.created.length, 1);
-  assert.match(state.created[0].body, /Suggested by rendered QA of branch /);
-
-  // A repeat delivery files nothing and does not recreate the label.
-  const again = await lifecycle(fixture, evidenceDir, "file-qa-checks", { session: sessionId, from }, [0], gh.env);
-  assert.deepEqual(again.json.created, []);
-  assert.equal(again.json.skipped.length, 3);
-  assert.equal((await gh.read()).labels.length, 1);
-
-  await writeFile(from, `${"x".repeat(201)}\n`);
-  const tooLong = await lifecycle(fixture, evidenceDir, "file-qa-checks", { session: sessionId, from }, [2], gh.env);
-  assert.match(tooLong.stderr, /longer than 200 characters/);
-  const missing = await lifecycle(fixture, evidenceDir, "file-qa-checks", { session: sessionId }, [2], gh.env);
-  assert.match(missing.stderr, /requires --from/);
-});
-
-test("file-qa-checks refuses a remote that is not on a known forge rather than letting gh guess", async (t) => {
-  const fixture = await createFixture(t);
-  await useLocalRemote(fixture);
-  const { sessionId, evidenceDir } = (await lifecycle(fixture, fixture.control, "prepare", { slug: "qa local" })).json;
-  const from = path.join(evidenceDir, "qa-checks.txt");
-  await writeFile(from, "Fail on console errors\n");
-  const gh = await issueGhStub(t);
-  const result = await lifecycle(fixture, evidenceDir, "file-qa-checks", { session: sessionId, from }, [2], gh.env);
-  assert.match(result.stderr, /needs remote origin to be a GitHub or GitLab repository/);
-  assert.deepEqual((await gh.read()).labels, []);
-});
-
 test("info passes on review.tool, so the reviewer knows whether to run OCR", async (t) => {
   const fixture = await createFixture(t);
   await writeFile(fixture.config, JSON.stringify({ paths: { worktreeRoot: fixture.worktrees }, review: { tool: "none" } }));
@@ -2284,13 +2210,13 @@ test("info passes on review.tool, so the reviewer knows whether to run OCR", asy
 });
 
 // A glab stand-in for `glab api`: answers merge requests, commit statuses,
-// labels and issues from a JSON state file, and logs each call's host and
+// pipeline jobs and traces from a JSON state file, and logs each call's host and
 // endpoint. Any other glab command fails, so a test proves ibni used the API.
 async function glabStub(t, state = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "mexxi-glab-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const file = path.join(directory, "state.json");
-  await writeFile(file, JSON.stringify({ mergeRequests: {}, statuses: [], labels: [], issues: [], calls: [], ...state }));
+  await writeFile(file, JSON.stringify({ mergeRequests: {}, statuses: [], calls: [], ...state }));
   await writeFile(path.join(directory, "glab"), `#!${process.execPath}
 const fs = require("node:fs");
 const state = JSON.parse(fs.readFileSync(${JSON.stringify(file)}, "utf8"));
@@ -2321,18 +2247,6 @@ if ((match = route.match(/^projects\\/([^/]+)\\/merge_requests\\/(\\d+)$/))) {
   const trace = (state.traces ?? {})[match[1]];
   if (trace === undefined) fail("no trace " + route);
   process.stdout.write(trace);
-} else if (/^projects\\/[^/]+\\/labels$/.test(route)) {
-  if (method === "POST") { state.labels.push(fields); save(); console.log(JSON.stringify(fields)); }
-  else console.log(JSON.stringify(state.labels.filter((label) => label.name.includes(params.get("search") ?? ""))));
-} else if (/^projects\\/[^/]+\\/issues$/.test(route)) {
-  if (method === "POST") {
-    state.issues.push(fields); save();
-    console.log(JSON.stringify({ iid: state.issues.length, web_url: "https://" + hostname + "/issues/" + state.issues.length }));
-  } else {
-    const page = Number(params.get("page")), size = Number(params.get("per_page"));
-    const labelled = state.issues.filter((issue) => issue.labels === params.get("labels"));
-    console.log(JSON.stringify(labelled.slice((page - 1) * size, page * size)));
-  }
 } else fail("unexpected endpoint " + endpoint);
 `);
   await chmod(path.join(directory, "glab"), 493);
@@ -2349,12 +2263,12 @@ const glabStatus = (sha, overrides = {}) => ({
   ...overrides,
 });
 
-test("a gitlab.com remote with nested groups takes baseline, media, issues, adopt and cleanup through glab", async (t) => {
+test("a gitlab.com remote with nested groups takes baseline, media, adopt and cleanup through glab", async (t) => {
   const fixture = await createFixture(t);
   await useForgeRemote(fixture, "git@gitlab.com:group/sub/widgets.git");
   const project = "group/sub/widgets";
   const sha = await optInToBaselineReuse(fixture);
-  const glab = await glabStub(t, { statuses: [glabStatus(sha)], issues: [{ title: "Fail on console errors at every route", labels: "qa-check" }] });
+  const glab = await glabStub(t, { statuses: [glabStatus(sha)] });
   const env = glab.env(fixture);
 
   // Baseline reuse reads the commit's statuses, and only a success on exactly baseSha counts.
@@ -2385,17 +2299,7 @@ test("a gitlab.com remote with nested groups takes baseline, media, issues, adop
   const media = await lifecycle(fixture, worktreePath, "publish-media", { session: sessionId }, [0], env);
   assert.equal(media.json.files[0].url, `https://gitlab.com/${project}/-/raw/${media.json.commit}/agent/gitlab/after%20home.png`);
 
-  const from = path.join(evidenceDir, "qa-checks.txt");
-  await writeFile(from, "Fail on console errors at every route\nAssert no horizontal overflow at 390px\n");
-  const filed = await lifecycle(fixture, evidenceDir, "file-qa-checks", { session: sessionId, from }, [0], env);
-  assert.deepEqual(filed.json.created, [{ title: "Assert no horizontal overflow at 390px", url: "https://gitlab.com/issues/2" }]);
-  assert.deepEqual(filed.json.skipped, ["Fail on console errors at every route"]);
-  let state = await glab.read();
-  assert.deepEqual(state.labels, [{ name: "qa-check", color: "#0E8A16", description: "A check rendered QA suggested, to become an executable test" }]);
-  assert.match(state.issues[1].description, /Suggested by rendered QA of branch /);
-  assert.ok(state.calls.every((call) => call.hostname === "gitlab.com" && (call.route.startsWith(`projects/${encodeURIComponent(project)}/`))));
-  const again = await lifecycle(fixture, evidenceDir, "file-qa-checks", { session: sessionId, from }, [0], env);
-  assert.deepEqual([again.json.created, (await glab.read()).labels.length], [[], 1]);
+  assert.ok((await glab.read()).calls.every((call) => call.hostname === "gitlab.com" && (call.route.startsWith(`projects/${encodeURIComponent(project)}/`))));
 
   // adopt reads the merge request named by the URL mark-pr recorded.
   await commit(worktreePath, "feature.txt", "feature\n", "feature");
@@ -2418,7 +2322,7 @@ test("a gitlab.com remote with nested groups takes baseline, media, issues, adop
   const removed = await lifecycle(fixture, fixture.control, "cleanup", { "dry-run": "false" }, [0], env);
   assert.equal(removed.json.results.find((row) => row.worktreePath === worktreePath).decision, "remove");
   assert.equal(await pathExists(worktreePath), false);
-  state = await glab.read();
+  const state = await glab.read();
   assert.ok(state.calls.some((call) => call.route === `projects/${encodeURIComponent(project)}/merge_requests/7`));
 });
 
@@ -2431,10 +2335,6 @@ test("a self-hosted remote has no forge until forge.hosts or the repository's .m
   const unknown = await lifecycle(fixture, fixture.control, "prepare", { slug: "self hosted" }, [0], env);
   assert.equal(unknown.json.forge, null);
   assert.match(unknown.json.forgeReason, /git\.example\.com, which is not a known forge; map it in forge\.hosts/);
-  const from = path.join(unknown.json.evidenceDir, "qa-checks.txt");
-  await writeFile(from, "Fail on console errors\n");
-  const refused = await lifecycle(fixture, fixture.control, "file-qa-checks", { session: unknown.json.sessionId, from }, [2], env);
-  assert.match(refused.stderr, /needs remote origin to be a GitHub or GitLab repository[\s\S]*forge\.hosts/);
   // No forge CLI is guessed for an unknown host.
   assert.deepEqual((await glab.read()).calls, []);
 

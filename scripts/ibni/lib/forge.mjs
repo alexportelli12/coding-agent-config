@@ -1,5 +1,5 @@
 // The code forge a repository lives on: where its pull requests (GitLab: merge
-// requests), CI state, issues and media URLs come from. GitHub goes through
+// requests), CI state and media URLs come from. GitHub goes through
 // `gh`, GitLab through `glab api`. Detection never guesses: a remote on a host
 // that is neither known nor mapped in forge.hosts has no forge, and every
 // caller that needs one fails or skips with the reason.
@@ -231,19 +231,6 @@ function githubForge({ host, namespace: owner, repo }) {
         url: item?.html_url ?? null, completedAt: item?.completed_at ?? null,
       }));
     },
-    async ensureLabel(root, { name, color, description }) {
-      const labels = parseArray(await ghRepo(root, ["label", "list", "--limit", "200", "--json", "name"]), "gh");
-      if (!labels.some((label) => label.name === name)) {
-        await ghRepo(root, ["label", "create", name, "--color", color, "--description", description]);
-      }
-    },
-    async issueTitles(root, label) {
-      const issues = parseArray(await ghRepo(root, ["issue", "list", "--label", label, "--state", "all", "--limit", "500", "--json", "title"]), "gh");
-      return issues.map((issue) => issue.title);
-    },
-    async createIssue(root, { title, label, body }) {
-      return ghRepo(root, ["issue", "create", "--title", title, "--label", label, "--body", body]);
-    },
     rawFileUrl(commit, file) {
       return `https://${host}/${owner}/${repo}/blob/${commit}/${encodePath(file)}?raw=true`;
     },
@@ -264,7 +251,6 @@ function mergeRequestParts(url) {
   if (!match) throw new WorkspaceError(`not a GitLab merge request URL: ${url}`);
   return { urlHost: match[1], projectPath: match[2], iid: match[3] };
 }
-const MAX_PAGES = 5;
 
 function gitlabForge({ host, namespace, repo }) {
   const project = `projects/${encodeURIComponent(`${namespace}/${repo}`)}`;
@@ -352,24 +338,6 @@ function gitlabForge({ host, namespace, repo }) {
           url: item?.target_url ?? null, completedAt: item?.finished_at ?? null,
         };
       });
-    },
-    async ensureLabel(root, { name, color, description }) {
-      const labels = await list(root, host, `${project}/labels?search=${encodeURIComponent(name)}&per_page=${PAGE_SIZE}`);
-      if (!labels.some((label) => label.name === name)) {
-        await api(root, host, `${project}/labels`, { name, color: `#${color}`, description });
-      }
-    },
-    async issueTitles(root, label) {
-      const titles = [];
-      for (let page = 1; page <= MAX_PAGES; page += 1) {
-        const issues = await list(root, host, `${project}/issues?labels=${encodeURIComponent(label)}&state=all&per_page=${PAGE_SIZE}&page=${page}`);
-        titles.push(...issues.map((issue) => issue.title));
-        if (issues.length < PAGE_SIZE) break;
-      }
-      return titles;
-    },
-    async createIssue(root, { title, label, body }) {
-      return (await api(root, host, `${project}/issues`, { title, labels: label, description: body })).web_url;
     },
     rawFileUrl(commit, file) {
       return `https://${host}/${namespace}/${repo}/-/raw/${commit}/${encodePath(file)}`;

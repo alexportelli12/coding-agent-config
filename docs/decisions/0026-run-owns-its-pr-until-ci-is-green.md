@@ -11,7 +11,7 @@ Extends [0014](0014-ibni-runs-setup-and-verify.md).
 
 A run ended when it opened the pull request. 51% of those pull requests still had CI pending when the run said it was done, so a failure there pulled the person back in. So did rebases of stacked pull requests, post-merge steps and "shall I go ahead?" stops. Of 71 context compactions across 88 runs, 61 happened after the pull request was delivered, in long sessions that kept going with follow-ups.
 
-Runs also verified again after every sync with the default branch, even when the sync brought in nothing: 18 runs, about 22%, paid for a verify run that could not change. `ibni publish` already kept its evidence when the tree was unchanged, but `/wettaq` never said so, so runs verified again anyway.
+Runs also verified again after syncing with the default branch when the sync brought in nothing. That cost 18 runs, about 22%, a verify run that could not change. `ibni publish` already kept its evidence when the tree was unchanged, but `/wettaq` never said so, so runs verified again anyway.
 
 ## Decision
 

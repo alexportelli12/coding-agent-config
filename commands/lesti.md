@@ -18,9 +18,9 @@ first, since establishing one is the job.
 
 `/wettaq` in `commands/wettaq.md` of the mexxi clone (`paths.checkout` in
 `~/.config/mexxi/config.json`, default `~/workspace/mexxi`) owns the lifecycle
-this command reuses. Read it, and follow its **Prepare The Isolated Workspace**
-(use the slug `lesti`), **Delivery** and **Completion** sections as written.
-Skip its contract and **Preflight** stages: ignore `baseline`, and do
+this command reuses. Read it, and follow its **Prepare**
+(use the slug `lesti`), **Delivery**, **CI** and **Completion** sections as written.
+Skip its **Contract** and **Preflight** stages: ignore `baseline`, and do
 not stop on a failing verify.
 
 ## Audit Before Changing Anything

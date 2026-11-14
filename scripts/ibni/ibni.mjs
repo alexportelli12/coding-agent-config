@@ -5,7 +5,6 @@ import { pathToFileURL } from "node:url";
 import { adoptWorkspace } from "./commands/adopt.mjs";
 import { DEFAULT_CI_TIMEOUT_MINUTES, waitForCi } from "./commands/ci-wait.mjs";
 import { cleanupWorkspaces } from "./commands/cleanup.mjs";
-import { fileQaChecks } from "./commands/file-qa-checks.mjs";
 import { workspaceInfo } from "./commands/info.mjs";
 import { listWorkspaces } from "./commands/list.mjs";
 import { markPullRequest } from "./commands/mark-pr.mjs";
@@ -26,7 +25,6 @@ export {
   adoptWorkspace,
   waitForCi,
   cleanupWorkspaces,
-  fileQaChecks,
   listWorkspaces,
   markPullRequest,
   prepareWorkspace,
@@ -241,24 +239,6 @@ export const COMMANDS = {
     timed: true,
     failed: (result) => result.state !== "green",
     run: (options) => waitForCi({ sessionId: options.session, timeoutMinutes: options["timeout-minutes"] }),
-  },
-  "file-qa-checks": {
-    usage: "ibni file-qa-checks --session <id> --from <file>",
-    summary: "File rendered QA's suggested checks as qa-check issues, skipping duplicates.",
-    why: "A browser check that keeps finding the same kind of problem should become an automated test, not be repeated by hand.",
-    details: [
-      "The file lists one check per line (a leading list marker is dropped); each is an issue title.",
-      "Creates the qa-check label if the repository lacks it, then an issue per check whose title",
-      "(case-insensitive) is not already open or closed under that label. Safe to repeat.",
-      "Prints created (title, url) and skipped titles. Needs an authenticated gh (GitHub) or glab (GitLab).",
-      SESSION_LOOKUP,
-    ],
-    options: {
-      session: "The sessionId from prepare or adopt.",
-      from: "File of checks, one per line.",
-    },
-    timed: true,
-    run: (options) => fileQaChecks({ sessionId: options.session, from: options.from }),
   },
   adopt: {
     usage: "ibni adopt --pr <pull-request-url>",
