@@ -90,23 +90,33 @@ instead.
 
 ## Follow-Up On An Existing Pull Request
 
-When this session already owns a retained `worktreePath`, `sessionId`, and
-pull-request URL, reuse that workspace instead of running `prepare`. When it
-does not (a new session, or one that lost the earlier session's id), run
-`ibni adopt --pr "<pr-url>"` instead of `prepare`. Adopt proves the pull
-request is open and that its head branch and commit match the workspace's
-recorded branch, publication, remote branch and clean local HEAD, then issues a
-new `sessionId`; record its result as you would `prepare`'s. Ownership moves:
-the previous session's id stops working. If adopt refuses, report its
-diagnostic and stop; never infer ownership of a retained worktree any other
-way. Then run `ibni sync --session "<sessionId>"` before changing anything,
-refresh the contract for the new request, and establish a green baseline by
-running the verify command (`ibni verify`; `prepare`'s baseline citation
-applies only to a fresh workspace). `adopt` reports `dependencies` and
-`verified` without acting on them: when `dependencies.current` is not true,
-follow its `nextAction` (usually `ibni setup`) before the baseline. A workspace
-from before ibni recorded setup reports `current: null`; run `ibni setup` when
-its lockfile may have changed. Then follow the normal gates of `/wettaq` through delivery;
-publication updates the existing branch and `mark-pr` records the same URL
-again. Rewrite the description for the whole pull request as it now stands,
-with a current merge call, rather than appending a follow-up section.
+Follow-ups start in a fresh session, so run `ibni adopt --pr "<pr-url>"`
+instead of `prepare`. Adopt proves the pull request is open and that its head
+matches the workspace's recorded branch, publication, remote branch and clean
+local HEAD, then issues a new `sessionId`; record its result as you would
+`prepare`'s. Ownership moves: the previous session's id stops working. If adopt
+refuses, report its diagnostic and stop; never infer ownership of a retained
+worktree any other way.
+
+Adopt's result also says what the follow-up is for. Read `pr`, `checks` and
+`reviewComments` (with the commands it gives to fetch the comments) before
+refreshing the contract: failed checks and unresolved review comments are part
+of the request.
+
+- **Merged pull request** (`merged: true`): adopt takes nothing over. Run the
+  steps the description lists under **After merge** from the control checkout,
+  on the default branch after pulling it, never in the retained worktree. A
+  step that needs a person, such as a production deploy, stays theirs: report
+  it.
+- **Open pull request:** run `ibni sync --session "<sessionId>"` before
+  changing anything. When the pull request was stacked on one that has since
+  merged, sync merges the new base in and retargets the pull request; follow
+  its `stack.nextAction` if it gives one. Then establish a green baseline with
+  the verify command (`prepare`'s baseline citation applies only to a fresh
+  workspace). When `dependencies.current` is not true, follow its `nextAction`
+  (usually `ibni setup`) first.
+
+Then follow `/wettaq`'s gates through delivery and CI; publication updates the
+existing branch and `mark-pr` records the same URL again. Rewrite the
+description for the whole pull request as it now stands, with a current merge
+call, rather than appending a follow-up section.

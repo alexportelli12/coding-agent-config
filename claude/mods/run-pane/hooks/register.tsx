@@ -1,7 +1,8 @@
 // The run pane: a pane beside the chat that follows the ibni workspace this
 // session works in, read from `ibni info` and `ibni stats` whenever a Bash
 // call runs ibni and after every turn, plus a band above the prompt once the
-// PR is delivered or the context window runs high (the context nudge).
+// PR is delivered (its CI state, and "done" once green) or the context window
+// runs high (the context nudge).
 // Claude Code only; ibni's metadata stays the record every host shares.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'

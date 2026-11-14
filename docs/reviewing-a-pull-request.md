@@ -22,7 +22,7 @@ The top of the description runs to about 120 words. For most pull requests it is
 | **Lead** | One or two sentences: what changed for the user, and why. |
 | **Merge call** | Safe to merge, safe once you take one action, or needs your decision. Whether it is easy or hard to undo, and how. Whether merging deploys it. |
 | **Your part** | The decisions only you can make, and the one check worth doing yourself: where to go, what to do, what you should see. |
-| **Evidence** | One line listing the [gates](glossary.md#gate) that ran, such as `verify ✓ · rendered QA ✓ · review ✓`, and what did not run. |
+| **Evidence** | One line listing the [gates](glossary.md#gate) that ran, such as `verify ✓ · rendered QA ✓ · review ✓`, and what did not run. The run waits for CI to pass before it hands the pull request over. |
 | **Before and after** | For a UI change, one pair of screenshots, just below the evidence. |
 
 ### Merge call
@@ -53,6 +53,7 @@ The line also names what did not run and why, such as no browser check for a cha
 
 - **What changed**, grouped by behaviour rather than by file.
 - **Decisions and assumptions**: what the agent decided without asking you. Each is worded so you can reverse it cheaply, usually with one follow-up request.
+- **After merge**: steps that must run once you merge, such as regenerating data. You don't run them: `/wettaq` with the pull request's link, in a new session, does.
 - **Left for later**: what the run chose not to do, one line each. That covers a flow it could not reach, a test it could not write, a small review finding outside the lines it changed, and a browser check worth automating. Ask for any of them with a follow-up request.
 - **Details**, collapsed: everything else, such as where the evidence files are. When a review kept asking to rewrite the same lines, both versions are here for you to choose. It lists each new test with the bug it catches and how the agent saw it fail, and what was deliberately left untested.
 
@@ -85,4 +86,4 @@ Read the diff, or ask someone who knows that area, when:
 
 ## Asking for changes
 
-Ask with `/wettaq` and the pull request's link, for example `/wettaq follow up on <pull request URL>: keep the old label as a tooltip`. It picks up the same [worktree](glossary.md#worktree), runs the same gates and updates the same pull request. For a second look without code changes, [`/ittestja`](../commands/ittestja.md), the command that tests a UI by hand in a browser, returns a findings report. [Commands](../commands/index.md) lists the rest, with the problem each one solves.
+Ask with `/wettaq` and the pull request's link in a new session, for example `/wettaq follow up on <pull request URL>: keep the old label as a tooltip`. It picks up the same [worktree](glossary.md#worktree), reads your review comments and the checks, runs the same gates and updates the same pull request. Once you merge, the same command runs any steps listed under **After merge**. For a second look without code changes, [`/ittestja`](../commands/ittestja.md), the command that tests a UI by hand in a browser, returns a findings report. [Commands](../commands/index.md) lists the rest, with the problem each one solves.

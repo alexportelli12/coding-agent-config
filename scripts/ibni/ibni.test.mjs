@@ -471,6 +471,41 @@ test("publish stops before pushing when a final synchronization changes the tree
   assert.equal(published.json.published, true);
 });
 
+// Decision 0026: a sync that leaves the tree verify passed (nothing new on the
+// default branch, or only what the branch already holds, as when the lower PR
+// of a stack merges) must not cost another verify run.
+test("publish pushes without a second verify when the sync leaves the verified tree unchanged", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "same tree" });
+  const { worktreePath, sessionId } = prepared.json;
+  await commit(worktreePath, "lower.txt", "lower\n", "the lower PR's change");
+  await commit(worktreePath, "own.txt", "own\n", "this PR's change");
+  await recordEvidence(fixture, prepared);
+  const verifiedTree = (await git(worktreePath, "rev-parse", "HEAD^{tree}")).stdout.trim();
+  // The lower PR lands on trunk with identical content (a squash merge).
+  await commit(fixture.seed, "lower.txt", "lower\n", "squash of the lower PR");
+  await git(fixture.seed, "push", "--quiet", "origin", "trunk");
+
+  const published = await lifecycle(fixture, worktreePath, "publish", { session: sessionId });
+  assert.equal(published.json.strategy, "rebase");
+  assert.equal(published.json.requiresRevalidation, false);
+  assert.equal(published.json.published, true);
+  assert.equal((await git(worktreePath, "rev-parse", "HEAD^{tree}")).stdout.trim(), verifiedTree);
+
+  // Published history takes a merge; the same holds when its tree is unchanged.
+  await commit(fixture.seed, "own.txt", "own\n", "the same change, landed elsewhere");
+  await git(fixture.seed, "push", "--quiet", "origin", "trunk");
+  await commit(worktreePath, "more.txt", "more\n", "a follow-up");
+  await recordEvidence(fixture, prepared);
+  const merged = await lifecycle(fixture, worktreePath, "publish", { session: sessionId });
+  assert.equal(merged.json.strategy, "merge");
+  assert.equal(merged.json.requiresRevalidation, false);
+  assert.equal(merged.json.published, true);
+  const unchanged = await lifecycle(fixture, worktreePath, "publish", { session: sessionId });
+  assert.equal(unchanged.json.strategy, "unchanged");
+  assert.equal(unchanged.json.published, true);
+});
+
 test("checks and publishes against a distinct configured push URL", async (t) => {
   const fixture = await createFixture(t);
   const fork = path.join(fixture.root, "fork.git");
@@ -679,6 +714,17 @@ async function ghStub(t) {
   t.after(() => rm(stubDirectory, { recursive: true, force: true }));
   const stub = path.join(stubDirectory, "gh");
   await writeFile(stub, `#!/bin/sh
+echo "$*" >> "\${GH_STUB_DIR}/calls"
+if [ "$1" = "run" ] && [ "$2" = "view" ]; then
+  if [ -f "\${GH_STUB_DIR}/job-$4.log" ]; then cat "\${GH_STUB_DIR}/job-$4.log"; exit 0; fi
+  echo "gh: no log for job $4" >&2
+  exit 1
+fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  merged="\${GH_STUB_DIR}/merged-\$(printf %s "$4" | tr / _).json"
+  if [ -f "$merged" ]; then cat "$merged"; else echo "[]"; fi
+  exit 0
+fi
 if [ "$1" = "api" ]; then
   if [ -f "\${GH_STUB_DIR}/check-runs.json" ]; then cat "\${GH_STUB_DIR}/check-runs.json"; exit 0; fi
   echo "gh: check runs not configured" >&2
@@ -697,9 +743,22 @@ if [ ! -f "\${GH_STUB_DIR}/\${pr}" ]; then
   exit 1
 fi
 state="\$(cat "\${GH_STUB_DIR}/\${pr}")"
+if [ "$2" = "edit" ]; then exit 0; fi
+if [ "$2" = "checks" ]; then
+  case "$*" in *--watch*) exit 0;; esac
+  if [ ! -f "\${GH_STUB_DIR}/\${pr}.checks" ]; then echo "no checks reported on the 'x' branch" >&2; exit 1; fi
+  cat "\${GH_STUB_DIR}/\${pr}.checks"
+  exit 0
+fi
+case "$*" in *comments,reviews*)
+  if [ -f "\${GH_STUB_DIR}/\${pr}.discussion" ]; then cat "\${GH_STUB_DIR}/\${pr}.discussion"; exit 0; fi
+  echo "gh: discussion not configured" >&2; exit 1;;
+esac
+base="trunk"
+if [ -f "\${GH_STUB_DIR}/\${pr}.base" ]; then base="\$(cat "\${GH_STUB_DIR}/\${pr}.base")"; fi
 if [ -f "\${GH_STUB_DIR}/\${pr}.head" ]; then
   read -r headRef headOid < "\${GH_STUB_DIR}/\${pr}.head"
-  printf '{"state":"%s","headRefName":"%s","headRefOid":"%s"}\\n' "$state" "$headRef" "$headOid"
+  printf '{"state":"%s","headRefName":"%s","headRefOid":"%s","baseRefName":"%s"}\\n' "$state" "$headRef" "$headOid" "$base"
   exit 0
 fi
 if [ "$state" = "MERGED" ] && [ -f "\${GH_STUB_DIR}/\${pr}.merge" ]; then
@@ -1706,6 +1765,10 @@ test("lifecycle steps, verify attempts and finding counts are recorded and repor
   // The run pane mod's tests draw from a recording of this scenario; it must
   // keep the shape ibni prints, or those tests prove nothing.
   await lifecycle(fixture, worktreePath, "mark-pr", { session: sessionId, url: "https://github.com/alexportelli12/example/pull/42" });
+  await setGhState(fixture.gh, 42, "OPEN");
+  await setGhHead(fixture.gh, 42, prepared.json.branch, (await git(worktreePath, "rev-parse", "HEAD")).stdout.trim());
+  await setGhChecks(fixture.gh, 42, [ghCheck("verify", "pass")]);
+  await lifecycle(fixture, worktreePath, "ci-wait", { session: sessionId });
   const recorded = await import("../../claude/mods/run-pane/tests/recorded.mjs");
   const shape = (value) => Array.isArray(value) ? [shape(value[0])]
     : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, shape(value[key])]))
@@ -1779,6 +1842,178 @@ test("a fresh session adopts an open pull request's workspace and delivers a fol
   const stats = await lifecycle(fixture, fixture.control, "stats", { session: sessionB });
   assert.deepEqual(stats.json.adoptions.map(({ previousSessionId, sessionId }) => [previousSessionId, sessionId]), [[sessionA.json.sessionId, sessionB]]);
   assert.deepEqual(stats.json.steps.filter((step) => step.step === "adopt").map((step) => step.sessionId), [sessionB]);
+});
+
+// A command that exits 1 still prints its JSON; lifecycle parses only exit 0.
+async function lifecycleJson(fixture, cwd, operation, options, allowedExitCodes = [0, 1], extraEnv = {}) {
+  const result = await lifecycle(fixture, cwd, operation, options, allowedExitCodes, extraEnv);
+  return { ...result, json: JSON.parse(result.stdout) };
+}
+
+async function setGhChecks(stubDirectory, prNumber, checks) {
+  await writeFile(path.join(stubDirectory, `${prNumber}.checks`), JSON.stringify(checks));
+}
+
+const ghCheck = (name, bucket, link = `https://github.com/acme/widgets/runs/${name}`) => ({ name, state: bucket.toUpperCase(), bucket, link, workflow: "ci" });
+
+test("ci-wait reports green, each failure with its redacted log tail, no checks and a stale head, and stats counts the failed rounds", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "ci wait" });
+  const { sessionId, worktreePath, branch } = prepared.json;
+  await publishAndMark(fixture, prepared, "feature\n", 7);
+  const publishedSha = (await git(worktreePath, "rev-parse", "HEAD")).stdout.trim();
+  await setGhState(fixture.gh, 7, "OPEN");
+  await setGhHead(fixture.gh, 7, branch, publishedSha);
+
+  // Catches: a pull request with no checks read as green.
+  const none = await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId, "timeout-minutes": "0.005" }, [1]);
+  assert.deepEqual([none.json.state, none.json.failed, none.json.prUrl, none.json.headSha], ["none", [], "https://example.test/pull/7", publishedSha]);
+
+  // Catches: a failed Actions job reported without its log, an unredacted
+  // secret in the tail, or an external status given a log it does not have.
+  const log = Array.from({ length: 100 }, (_, index) => `line ${index}`).concat(["token ghp_abcdefghijklmnopqrstuvwxyz0123"]).join("\n");
+  await writeFile(path.join(fixture.gh, "job-22.log"), log);
+  await setGhChecks(fixture.gh, 7, [
+    ghCheck("lint", "pass"),
+    ghCheck("test", "fail", "https://github.com/acme/widgets/actions/runs/11/job/22"),
+    ghCheck("vercel", "fail", "https://vercel.example/deploy/1"),
+  ]);
+  const failed = await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId }, [1]);
+  assert.equal(failed.json.state, "failed");
+  assert.deepEqual(failed.json.failed.map(({ name, url }) => [name, url]), [["test", "https://github.com/acme/widgets/actions/runs/11/job/22"], ["vercel", "https://vercel.example/deploy/1"]]);
+  const tail = failed.json.failed[0].logTail.split("\n");
+  assert.deepEqual([tail.length, tail[0], tail.at(-1)], [60, "line 41", "token [REDACTED]"]);
+  assert.equal(failed.json.failed[1].logTail, null);
+  assert.match(failed.json.nextAction, /three rounds/);
+
+  // Catches: a cancelled or still-running check counted as green.
+  await setGhChecks(fixture.gh, 7, [ghCheck("lint", "pass"), ghCheck("deploy", "cancel")]);
+  assert.equal((await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId }, [1])).json.state, "cancelled");
+  await setGhChecks(fixture.gh, 7, [ghCheck("lint", "pass"), ghCheck("slow", "pending")]);
+  assert.equal((await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId, "timeout-minutes": "0.005" }, [1])).json.state, "pending");
+
+  await setGhChecks(fixture.gh, 7, [ghCheck("lint", "pass"), ghCheck("docs", "skipping")]);
+  const green = await lifecycle(fixture, fixture.control, "ci-wait", { session: sessionId });
+  assert.deepEqual([green.json.state, green.json.failed, green.json.nextAction], ["green", [], undefined]);
+
+  // Catches: waiting on CI for a commit other than the one the session has.
+  await commit(worktreePath, "unpublished.txt", "fix\n", "an unpublished fix");
+  const stale = await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId }, [1]);
+  assert.equal(stale.json.state, "stale");
+  assert.match(stale.json.nextAction, /ibni publish/);
+
+  const stats = await lifecycle(fixture, fixture.control, "stats", { session: sessionId });
+  assert.deepEqual({ ...stats.json.ci, history: undefined }, { waits: 6, rounds: 1, state: "stale", history: undefined });
+  assert.deepEqual(stats.json.steps.filter((step) => step.step === "ci-wait").map((step) => step.outcome),
+    ["ci-none", "ci-failed", "ci-cancelled", "ci-pending", "succeeded", "ci-stale"]);
+  await lifecycle(fixture, fixture.control, "ci-wait", { session: sessionId, "timeout-minutes": "0" }, [2]);
+});
+
+test("ci-wait on GitLab reads the merge request's head pipeline jobs and the failed job's trace", async (t) => {
+  const fixture = await createFixture(t);
+  await useForgeRemote(fixture, "git@gitlab.com:group/widgets.git");
+  const glab = await glabStub(t);
+  const env = glab.env(fixture);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "gitlab ci" }, [0], env);
+  const { sessionId, worktreePath, branch } = prepared.json;
+  await commit(worktreePath, "feature.txt", "feature\n", "feature");
+  await recordEvidence(fixture, prepared);
+  await lifecycle(fixture, worktreePath, "publish", { session: sessionId }, [0], env);
+  const sha = (await git(worktreePath, "rev-parse", "HEAD")).stdout.trim();
+  const mrUrl = "https://gitlab.com/group/widgets/-/merge_requests/3";
+  await lifecycle(fixture, worktreePath, "mark-pr", { session: sessionId, url: mrUrl }, [0], env);
+  const job = (id, name, status, extra = {}) => ({ id, name, status, stage: "test", web_url: `https://gitlab.com/group/widgets/-/jobs/${id}`, ...extra });
+  await glab.update({
+    mergeRequests: { "group/widgets!3": { iid: 3, state: "opened", source_branch: branch, sha, target_branch: "trunk", head_pipeline: { id: 90 } } },
+    jobs: { 90: [job(1, "lint", "success"), job(2, "unit", "failed"), job(3, "flaky", "failed", { allow_failure: true })] },
+    traces: { 2: "setup\nassertion failed" },
+  });
+  // Catches: a job allowed to fail failing the round, or the trace not fetched.
+  const failed = await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId }, [1], env);
+  assert.equal(failed.json.state, "failed");
+  assert.deepEqual(failed.json.failed, [{ name: "unit", url: "https://gitlab.com/group/widgets/-/jobs/2", logTail: "setup\nassertion failed" }]);
+  await glab.update({ jobs: { 90: [job(1, "lint", "success"), job(4, "manual deploy", "manual")] } });
+  assert.equal((await lifecycle(fixture, fixture.control, "ci-wait", { session: sessionId }, [0], env)).json.state, "green");
+});
+
+test("a stacked pull request is retargeted at the default branch only once its lower PR merged and the merge is pushed", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "upper" });
+  const { sessionId, worktreePath, branch } = prepared.json;
+  await publishAndMark(fixture, prepared, "upper\n", 8);
+  const publishedSha = (await git(worktreePath, "rev-parse", "HEAD")).stdout.trim();
+  await setGhState(fixture.gh, 8, "OPEN");
+  await setGhHead(fixture.gh, 8, branch, publishedSha);
+  await writeFile(path.join(fixture.gh, "8.base"), "agent/lower");
+  // The lower branch is still on the remote and its PR open: nothing moves.
+  await git(fixture.seed, "push", "--quiet", "origin", "trunk:refs/heads/agent/lower");
+  const calls = async () => (await readFile(path.join(fixture.gh, "calls"), "utf8")).split("\n");
+  const open = await lifecycle(fixture, worktreePath, "sync", { session: sessionId });
+  assert.deepEqual([open.json.stack.retargeted, open.json.stack.base], [false, "agent/lower"]);
+  assert.ok(!(await calls()).some((call) => call.startsWith("pr edit")));
+
+  // Catches: retargeting before the merged base is in the pushed branch, or a
+  // rebase or force push instead of a merge.
+  await writeFile(path.join(fixture.gh, "merged-agent_lower.json"), JSON.stringify([{ url: "https://example.test/pull/5" }]));
+  await advanceRemote(fixture, "lower.txt");
+  const synced = await lifecycle(fixture, worktreePath, "sync", { session: sessionId });
+  assert.equal(synced.json.strategy, "merge");
+  assert.equal(synced.json.stack.retargeted, false);
+  assert.match(synced.json.stack.nextAction, /ibni publish/);
+  assert.ok(!(await calls()).some((call) => call.startsWith("pr edit")));
+  await recordEvidence(fixture, prepared);
+  const published = await lifecycle(fixture, worktreePath, "publish", { session: sessionId });
+  assert.equal(published.json.published, true);
+  assert.deepEqual([published.json.stack.retargeted, published.json.stack.to], [true, "trunk"]);
+  assert.ok((await calls()).includes("pr edit https://example.test/pull/8 --base trunk"));
+  await git(worktreePath, "merge-base", "--is-ancestor", publishedSha, "HEAD");
+
+  // A base branch that is gone counts as merged too.
+  await git(fixture.seed, "push", "--quiet", "origin", "--delete", "agent/lower");
+  await rm(path.join(fixture.gh, "merged-agent_lower.json"));
+  const gone = await lifecycle(fixture, worktreePath, "sync", { session: sessionId });
+  assert.deepEqual([gone.json.stack.retargeted, gone.json.stack.reason], [true, "agent/lower is gone"]);
+  // Not stacked: no stack field at all.
+  await writeFile(path.join(fixture.gh, "8.base"), "trunk");
+  assert.equal((await lifecycle(fixture, worktreePath, "sync", { session: sessionId })).json.stack, undefined);
+});
+
+test("adopt hands a follow-up session the PR, its checks and how to read review comments, and takes nothing over for a merged PR", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "follow up" });
+  const { worktreePath, branch } = prepared.json;
+  await publishAndMark(fixture, prepared, "feature\n", 9);
+  const prUrl = "https://example.test/pull/9";
+  const headSha = (await git(worktreePath, "rev-parse", "HEAD")).stdout.trim();
+  await setGhState(fixture.gh, 9, "OPEN");
+  await setGhHead(fixture.gh, 9, branch, headSha);
+  await setGhChecks(fixture.gh, 9, [ghCheck("lint", "pass"), ghCheck("test", "fail")]);
+  await writeFile(path.join(fixture.gh, "9.discussion"), JSON.stringify({ comments: [{}, {}], reviews: [{}] }));
+
+  const adopted = await lifecycle(fixture, fixture.control, "adopt", { pr: prUrl });
+  assert.deepEqual(adopted.json.pr, { state: "OPEN", baseBranch: "trunk", headSha, url: prUrl });
+  assert.deepEqual(adopted.json.checks, {
+    state: "failed", total: 2, counts: { pass: 1, fail: 1, pending: 0, skipping: 0, cancel: 0 },
+    failed: [{ name: "test", url: "https://github.com/acme/widgets/runs/test" }],
+  });
+  assert.deepEqual([adopted.json.reviewComments.comments, adopted.json.reviewComments.reviews], [2, 1]);
+  assert.match(adopted.json.reviewComments.nextAction, /gh pr view https:\/\/example\.test\/pull\/9 --comments/);
+
+  // Catches: adopt taking over a merged PR's worktree for code changes, or
+  // refusing it over a dirty tree it would never touch.
+  await setGhState(fixture.gh, 9, "MERGED");
+  await writeFile(path.join(worktreePath, "scratch.txt"), "left behind\n");
+  const before = await metadataFile(worktreePath);
+  const merged = await lifecycle(fixture, fixture.control, "adopt", { pr: prUrl });
+  assert.deepEqual([merged.json.merged, merged.json.adopted, merged.json.sessionId, merged.json.pr.state], [true, false, undefined, "MERGED"]);
+  assert.match(merged.json.nextAction, new RegExp(`post-merge steps .* from ${fixture.control.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}, after updating it to the latest trunk`));
+  assert.equal(await metadataFile(worktreePath), before);
+
+  // A merged PR whose workspace is gone is still reported, from its URL.
+  const github = "https://github.com/acme/widgets/pull/9";
+  await writeFile(path.join(fixture.gh, "9.head"), `${branch} ${headSha}\n`);
+  const cleaned = await lifecycle(fixture, fixture.control, "adopt", { pr: github });
+  assert.deepEqual([cleaned.json.merged, cleaned.json.worktreePath], [true, null]);
 });
 
 async function gitStub(t) {
@@ -2079,6 +2314,12 @@ if ((match = route.match(/^projects\\/([^/]+)\\/merge_requests\\/(\\d+)$/))) {
 } else if (/^projects\\/[^/]+\\/repository\\/commits\\/[0-9a-f]+\\/statuses$/.test(route)) {
   if (state.statuses === null) fail("statuses unavailable");
   console.log(JSON.stringify(state.statuses));
+} else if ((match = route.match(/^projects\\/[^/]+\\/pipelines\\/(\\d+)\\/jobs$/))) {
+  console.log(JSON.stringify((state.jobs ?? {})[match[1]] ?? []));
+} else if ((match = route.match(/^projects\\/[^/]+\\/jobs\\/(\\d+)\\/trace$/))) {
+  const trace = (state.traces ?? {})[match[1]];
+  if (trace === undefined) fail("no trace " + route);
+  process.stdout.write(trace);
 } else if (/^projects\\/[^/]+\\/labels$/.test(route)) {
   if (method === "POST") { state.labels.push(fields); save(); console.log(JSON.stringify(fields)); }
   else console.log(JSON.stringify(state.labels.filter((label) => label.name.includes(params.get("search") ?? ""))));

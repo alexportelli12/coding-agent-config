@@ -7,7 +7,7 @@ sources:
   - scripts/ibni/commands/**
   - scripts/ibni/lib/lock.mjs
   - scripts/ibni/lib/scope.mjs
-reviewed: 2026-10-25
+reviewed: 2026-11-14
 ---
 
 # How a run works
@@ -26,7 +26,9 @@ flowchart TD
   G --> H["Look at it in a real browser"]
   H --> I["A second agent reviews it"]
   I --> J["Push the branch,<br/>open the pull request"]
-  J --> K["You review and merge"]
+  J --> L{"CI passes?"}
+  L -- "no, up to three fixes" --> F
+  L -- yes --> K["You review and merge"]
 ```
 
 Not every change needs every step. A one-line fix skips the independent review; a substantial feature gets it. A change without a UI skips the browser. The workflow is proportional on purpose, so small changes stay fast.
@@ -42,6 +44,7 @@ Not every change needs every step. A one-line fix skips the independent review; 
 7. **Look at it in a real browser.** For user-facing work, the agent drives the running app at phone, tablet and desktop sizes and checks motion, keyboard use, touch targets and console errors. This is [rendered QA](glossary.md#rendered-qa); see [rendered-qa](../skills/rendered-qa/SKILL.md). [`/ittestja`](../commands/ittestja.md) runs the same check on its own, without changing code.
 8. **A second agent reviews it.** For substantial changes, the [code-reviewer](../agent/code-reviewer.md) judges the change. It cannot edit code, so it only reports, and the builder fixes what it finds. See [implement-review](../skills/implement-review/SKILL.md).
 9. **Push and open the pull request.** The agent runs `ibni record-evidence` to record the exact code its checks passed on. `ibni publish` then pushes the branch, never by force, and only if `ibni verify` passed on exactly that code. The agent opens the pull request, with screenshots and a [merge call](glossary.md#merge-call).
+10. **Wait for CI.** A pull request whose [CI](glossary.md#ci) is still running is not finished, so the run waits for it with `ibni ci-wait`. When a check fails, the agent fixes it from the failure's log and publishes again, up to three times. The run ends when CI passes, or with a report of what blocks it.
 
 You review the pull request and decide whether to merge; [Reviewing a mexxi pull request](reviewing-a-pull-request.md) says what to check. mexxi never merges for you.
 
@@ -53,4 +56,4 @@ The red lines are rules: the agent never merges, force pushes or pushes to the d
 
 ## After the pull request
 
-The worktree stays for follow-up changes. Ask `/wettaq` again with the pull request's link, in the same session or a later one, and it updates the same pull request. [`/irrifletti`](../commands/irrifletti.md), which looks back at recent sessions, measures how they went, privately. It shows whether a change to the workflow helped.
+The worktree stays for follow-up changes. Start a new session and ask `/wettaq` with the pull request's link: it takes over the worktree, reads the pull request, its checks and its review comments, and updates the same pull request. A fresh session keeps the agent's context small, which is where most long sessions went wrong. Steps the pull request lists under **After merge** run the same way, once you have merged it. When a pull request was built on another one that has since merged, `ibni` merges the new base in and points the pull request at the default branch, never force pushing. [`/irrifletti`](../commands/irrifletti.md), which looks back at recent sessions, measures how they went, privately. It shows whether a change to the workflow helped.

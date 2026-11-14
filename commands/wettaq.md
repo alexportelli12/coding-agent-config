@@ -11,11 +11,12 @@ summary: >-
 
 # Implement: $ARGUMENTS
 
-Take the request in `$ARGUMENTS` from repository-grounded discovery through a
-pull request ready for human product validation. The active session is the task
-contract; do not create or persist a planning or requirements artifact. When the
-request continues an existing pull request, load `implement-review` and follow
-its follow-up path instead of running `prepare`.
+Take the request in `$ARGUMENTS` from repository-grounded discovery to a pull
+request whose CI is green, ready for human product validation. The active
+session is the task contract; do not create or persist a planning or
+requirements artifact. When `$ARGUMENTS` is a pull request URL or continues an
+existing pull request, load `implement-review` and follow its follow-up path
+instead of running `prepare`.
 
 ## Prepare The Isolated Workspace
 
@@ -212,9 +213,11 @@ that gate leave no unresolved blockers.
    follow it.
 4. Run `ibni publish --session "<sessionId>"`. It fetches the default branch,
    integrates it safely, and pushes only the owned feature branch without force.
-5. If `publish` returns `requiresEvidence: true`, follow its `nextAction`. When
-   `requiresRevalidation` is also true, the integration changed the tree and
-   prior evidence is stale: run the verify command (`ibni verify`) on the
+5. If `publish` returns `requiresEvidence: true`, follow its `nextAction`. Run
+   the verify command again only when `requiresRevalidation` is true: then the
+   integration changed the tree and prior evidence is stale. When the sync
+   brought in nothing, `publish` keeps the evidence and pushes. On stale
+   evidence, run the verify command (`ibni verify`) on the
    integrated tree, inspect the integration diff, and refresh rendered
    evidence only where the upstream change could materially affect it (a
    review refresh follows `implement-review`). Commit any remediation and
@@ -230,7 +233,9 @@ that gate leave no unresolved blockers.
    forge's CLI (`gh pr create` on GitHub, `glab mr create` on GitLab); the
    `forge` field of `prepare` or `ibni info` names it. When `forge` is null,
    stop and report its `forgeReason` rather than guess. For follow-up delivery,
-   update the existing pull request instead of creating another. A change to
+   update the existing pull request instead of creating another. List any step
+   that must run after the merge under **After merge**: the follow-up session
+   runs them, not the reviewer. A change to
    `verify`, `setup` or `ciCheck` in `.mexxi.json` changes the gate itself: call
    it out in the description's merge call.
 8. Run `ibni mark-pr --session "<sessionId>" --url "<pr-url>"`.
@@ -249,15 +254,30 @@ stash, discard work, include unrelated changes, or improvise destructive
 recovery. The guard hook is a backup for some of these, not their owner: what
 it allows is not thereby permitted.
 
+## CI
+
+The run owns its pull request until CI is green. Run `ibni ci-wait --session
+"<sessionId>"` in the background and wait for it inside the turn.
+
+- `green`: the run is done.
+- `failed`: fix the failed jobs from their log tails in a new commit, run the
+  verify command, record evidence and publish, then wait again. Stop after
+  three fix rounds.
+- `stale`: follow its `nextAction`, then wait again.
+- Anything else (`none`, `pending` after the timeout, `cancelled`, or a failure
+  you cannot fix within scope): report the run as blocked, with the jobs and
+  their log tails.
+
 ## Completion
 
-The run succeeds when the pull request is ready for human product validation
-and a merge decision. Report briefly:
+The run succeeds when CI is green, or ends with a blocked report. Report
+briefly:
 
-- the pull-request link;
+- the pull-request link and its CI state;
 - `worktreePath` and `branch`;
 - the **Left for later** list worth knowing during product review;
 - the `prepare` cleanup summary: removed workspaces, and kept ones with reasons.
 
-Do not merge. Keep the worktree for follow-up changes, in this session or in a
-later one through `adopt`.
+Do not merge. The run ends here. Follow-up changes, review comments and
+post-merge steps start in a fresh session with `/wettaq <pull request URL>`,
+which adopts the retained worktree.

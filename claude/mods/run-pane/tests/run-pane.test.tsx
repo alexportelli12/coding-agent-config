@@ -111,21 +111,42 @@ test('a red verify is the headline and its stage is marked failed', async ($, on
   await ui.unmount()
 })
 
-test('the band says the PR is delivered and where follow-ups go, and can be dismissed', async ($, on) => {
+test('once CI is green the band says the run is done and where follow-ups go, and can be dismissed', async ($, on) => {
   engine(on, { info, stats })
   await $.tool.call({ tool: 'Bash', command: `ibni stats --session ${SESSION}` })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /delivered/ }))?.text).toBe(' ✓ PR #42 delivered   Follow-ups go in a fresh session: give /wettaq the PR link.')
+  expect((await ui.find({ type: 'Text', text: /CI green/ }))?.text).toBe(
+    ' ✓ PR #42 CI green   Run done; start follow-ups in a new session with /wettaq https://github.com/alexportelli12/example/pull/42.',
+  )
   await ui.press({ key: 'dismiss' })
-  expect(await ui.find({ type: 'Text', text: /delivered/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /CI green/ })).toBeUndefined()
   await ui.unmount()
+})
+
+// Catches: a delivered PR read as done while its CI is still running or red.
+test('while CI is pending or failed the band shows that state, not done', async ($, on) => {
+  const cases = [
+    [{ waits: 0, rounds: 0, state: null }, ' PR #42 · waiting on CI   The run is done once CI is green.'],
+    [{ waits: 1, rounds: 0, state: 'pending' }, ' PR #42 · CI still running   The run is done once CI is green.'],
+    [{ waits: 2, rounds: 2, state: 'failed' }, ' ✗ PR #42 CI failed   Round 2: this run fixes it before it is done.'],
+  ] as const
+  let current: unknown = stats
+  engine(on, { info, get stats() { return current } })
+  for (const [ci, expected] of cases) {
+    current = { ...stats, ci: { ...ci, history: [] } }
+    await $.tool.call({ tool: 'Bash', command: `ibni stats --session ${SESSION}` })
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect((await ui.find({ type: 'Text', text: /PR #42/ }))?.text).toBe(expected)
+    expect(await ui.find({ type: 'Text', text: /Run done/ })).toBeUndefined()
+    await ui.unmount()
+  }
 })
 
 test('the band stays out of the way while Claude is working', async ($, on) => {
   engine(on, { info, stats })
   await $.tool.call({ tool: 'Bash', command: `ibni stats --session ${SESSION}` })
   const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true }, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /delivered/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /CI green/ })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -135,7 +156,7 @@ test('the band suggests a fresh session when context runs high', async ($, on) =
   await $.tool.call({ tool: 'Bash', command: `ibni info --session ${SESSION}` })
   await $.turn.complete({ turnId: 'turn-1', reason: 'answer', answer: '', durationMs: 1, isAborted: false })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /82% context/ }))?.text).toBe(' 82% context   Finish this run here, then start the next task in a fresh session.')
+  expect((await ui.find({ type: 'Text', text: /82% context/ }))?.text).toBe(' 82% context   Finish this run here, then start follow-ups in a new session with /wettaq <PR URL>.')
   await ui.unmount()
 })
 
@@ -154,6 +175,6 @@ test('without an ibni run the pane says so and the band draws nothing of its own
   expect(await pane.find({ type: 'Text', text: /No run yet/ })).toBeDefined()
   await pane.unmount()
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await band.find({ type: 'Text', text: /fresh session/ })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: /new session/ })).toBeUndefined()
   await band.unmount()
 })

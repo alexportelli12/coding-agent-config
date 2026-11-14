@@ -84,6 +84,9 @@ below at its top. Otherwise use this shape:
 ## Decisions and assumptions
 - <Something decided without being asked: the reading taken and the cheapest way to reverse it.>
 
+## After merge
+- <A step that must run once this merges, with its exact command; `/wettaq <this PR's URL>` in a new session runs it.>
+
 ## Left for later
 - <A known limit, a review finding not fixed in this run, or a check worth automating: one line each.>
 
@@ -133,6 +136,12 @@ guarantee. The test report `test-design` produces (each new test's break and
 how it was seen failing, and what was deliberately left untested) goes in
 Details, one line per test; a break no available test level could reach goes
 in **Left for later**. A coverage percentage is never proof.
+
+**After merge.** List each step that must run once the pull request merges,
+such as regenerating data or closing a tracking issue, with its exact command.
+The follow-up session runs them, so they are not the reviewer's part; a step
+only a person may take, such as a production deploy, goes in **Your part**
+instead.
 
 **Decisions and assumptions.** List each reversible choice the run made
 without asking: the open question, the reading taken, and how to reverse it.

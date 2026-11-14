@@ -3,6 +3,7 @@
 // in commands/, and the Git, locking, metadata and config helpers they share in lib/.
 import { pathToFileURL } from "node:url";
 import { adoptWorkspace } from "./commands/adopt.mjs";
+import { DEFAULT_CI_TIMEOUT_MINUTES, waitForCi } from "./commands/ci-wait.mjs";
 import { cleanupWorkspaces } from "./commands/cleanup.mjs";
 import { fileQaChecks } from "./commands/file-qa-checks.mjs";
 import { workspaceInfo } from "./commands/info.mjs";
@@ -23,6 +24,7 @@ import { recordStep } from "./lib/timings.mjs";
 
 export {
   adoptWorkspace,
+  waitForCi,
   cleanupWorkspaces,
   fileQaChecks,
   listWorkspaces,
@@ -135,7 +137,18 @@ export const COMMANDS = {
     usage: "ibni sync --session <id>",
     summary: "Integrate the latest default branch into the session's branch.",
     why: "The default branch moves on while a task runs, so the task's branch has to catch up without losing work; on a conflict it stops and changes nothing.",
-    details: ["Rebases unpublished work, merges into published work, and aborts cleanly on conflict.", SESSION_LOOKUP],
+    details: [
+      "Rebases unpublished work, merges into published work, and aborts cleanly on conflict.",
+      "requiresRevalidation is true only when the integration changed the tree; when it brought in nothing,",
+      "or only what the branch already held, the last verify and evidence still hold.",
+      "For a stacked pull request (its base is another task's branch): once that branch's pull request has",
+      "merged, or the branch is gone, the merge of the default branch above is what takes the lower changes in,",
+      "never a rebase or force push; once that merge is on the remote, the pull request is retargeted at the",
+      "default branch (gh pr edit --base, or the merge request's target branch on GitLab). stack reports it",
+      "(base, retargeted, reason, and nextAction while the merge still needs ibni publish); a pull request that",
+      "is not stacked has no stack field.",
+      SESSION_LOOKUP,
+    ],
     options: { session: "The sessionId from prepare or adopt." },
     timed: true,
     run: (options) => synchronizeWorkspace({ sessionId: options.session }),
@@ -161,6 +174,9 @@ export const COMMANDS = {
       "Returns published: false with a nextAction when evidence is missing or stale, or when",
       "ibni verify has not passed on the tree it would push (requiresVerify: true).",
       "A push failing with an HTTP 5xx from the Git host is retried once.",
+      "When the sync leaves the tree ibni verify passed unchanged (the default branch brought nothing new,",
+      "or only what the branch already held), it pushes on the existing evidence without a second verify.",
+      "After the push, a stacked pull request whose lower one merged is retargeted, as sync describes (stack).",
       SESSION_LOOKUP,
     ],
     options: { session: "The sessionId from prepare or adopt." },
@@ -195,6 +211,31 @@ export const COMMANDS = {
     timed: true,
     run: (options) => markPullRequest({ sessionId: options.session, url: options.url }),
   },
+  "ci-wait": {
+    usage: "ibni ci-wait --session <id> [--timeout-minutes <n>]",
+    summary: "Wait for the pull request's CI checks and report green, or each failure with the end of its log.",
+    why: "A run is done only when CI passes on its pull request, so the agent waits for the checks and fixes what fails instead of leaving that to you.",
+    details: [
+      "Run in the background after mark-pr. Reads the session's recorded pull request and first checks that",
+      "the pull request's head, the remote branch and local HEAD are all the recorded publication; otherwise",
+      "state is stale, with a reason and nextAction, and nothing is waited on. Then waits up to --timeout-minutes",
+      "for the checks to register and finish: GitHub through gh pr checks --watch, GitLab by polling the merge",
+      "request's head pipeline through glab api. Holds no lock while it waits.",
+      "state is green, failed, pending (still running at the timeout), none (the forge reports no checks),",
+      "cancelled or stale. failed lists each failed check (name, url, logTail): the last 60 lines of a failed",
+      "GitHub Actions or GitLab job's log, redacted; a check from another service gives only its url.",
+      "Prints one line of JSON with prUrl, headSha, durationMs and, unless green, nextAction; exits 1 unless green.",
+      "Each wait is recorded, and stats reports ci (waits, rounds that failed, the last state).",
+      SESSION_LOOKUP,
+    ],
+    options: {
+      session: "The sessionId from prepare or adopt.",
+      "timeout-minutes": `How long to wait for the checks; defaults to ${DEFAULT_CI_TIMEOUT_MINUTES}.`,
+    },
+    timed: true,
+    failed: (result) => result.state !== "green",
+    run: (options) => waitForCi({ sessionId: options.session, timeoutMinutes: options["timeout-minutes"] }),
+  },
   "file-qa-checks": {
     usage: "ibni file-qa-checks --session <id> --from <file>",
     summary: "File rendered QA's suggested checks as qa-check issues, skipping duplicates.",
@@ -215,8 +256,8 @@ export const COMMANDS = {
   },
   adopt: {
     usage: "ibni adopt --pr <pull-request-url>",
-    summary: "Take over the retained workspace of an open pull request from a new session.",
-    why: "When you continue a pull request from a new session, /wettaq runs this to pick up its worktree, and only when the worktree provably belongs to that pull request.",
+    summary: "Take over the retained workspace of an open pull request from a new session, or report a merged one.",
+    why: "Follow-ups start in a new session with /wettaq and the pull request's link; this picks up its worktree, only when the worktree provably belongs to that pull request, and tells the new session what to read first.",
     details: [
       "Finds the workspace that recorded this pull request, then proves the PR is open, its head",
       "branch is the workspace's branch, and its head commit equals the recorded publication, the",
@@ -226,6 +267,12 @@ export const COMMANDS = {
       "Also reports dependencies (whether the worktree's lockfiles match the last recorded setup;",
       "current null when it predates ibni setup) and verified (whether ibni verify passed on HEAD's",
       "tree), each with a nextAction when not. It never reinstalls or verifies on its own.",
+      "For the follow-up it also prints pr (state, baseBranch, headSha, url), checks (the checks as they stand,",
+      "never waited on: state, total, counts, failed) and reviewComments (comments and reviews counts where the",
+      "forge reports them, the commands that read them, and a nextAction to read them before changing anything).",
+      "A merged pull request is never adopted: it prints merged: true, takes nothing over, and nextAction says",
+      "its post-merge steps run from the control checkout on the updated default branch, with no worktree.",
+      "That works even when the workspace is already cleaned up, for a pull request URL on a known forge.",
     ],
     options: { pr: "The pull request's URL, exactly as recorded by mark-pr." },
     timed: true,

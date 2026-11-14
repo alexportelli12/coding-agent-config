@@ -8,6 +8,8 @@
 // verification.queuedMs when runs began waiting for a slot, and its scope
 // fields when runs moved into systemd scopes (unscoped in that scenario).
 // review.accepted replaced the same/cross split by hand when that was retired.
+// The ci-wait step and ci were added by hand, in that scenario's shape, when
+// ibni began waiting on CI (decision 0026).
 export const info = {
   "operation": "info",
   "sessionId": "2c026ea35efd82bef78e30b9",
@@ -121,6 +123,14 @@ export const stats = {
       "endedAt": "2026-10-21T02:30:36.111Z",
       "outcome": "succeeded",
       "durationMs": 108
+    },
+    {
+      "step": "ci-wait",
+      "sessionId": "2c026ea35efd82bef78e30b9",
+      "startedAt": "2026-10-21T02:30:36.260Z",
+      "endedAt": "2026-10-21T02:36:12.402Z",
+      "outcome": "succeeded",
+      "durationMs": 336142
     }
   ],
   "verify": {
@@ -182,6 +192,20 @@ export const stats = {
       {
         "at": "2026-10-21T02:30:33.333Z",
         "findings": 0
+      }
+    ]
+  },
+  "ci": {
+    "waits": 1,
+    "rounds": 0,
+    "state": "green",
+    "history": [
+      {
+        "at": "2026-10-21T02:36:12.390Z",
+        "state": "green",
+        "headSha": "dbbaed3077fe4576974b32f8e7f29db3f7cb3761",
+        "failed": 0,
+        "durationMs": 336130
       }
     ]
   }

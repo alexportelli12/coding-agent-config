@@ -1,18 +1,15 @@
 import { randomBytes } from "node:crypto";
 import { WorkspaceError } from "../lib/errors.mjs";
-import { workspaceConfig } from "../lib/config.mjs";
-import { changeRequestForge, detectForge, requireForge } from "../lib/forge.mjs";
-import { assertClean, assertNoGitOperation, cleanOutput, git, remoteBranchSha } from "../lib/git.mjs";
+import { checksSummary, pullRequestForge } from "../lib/checks.mjs";
+import { changeRequestForge } from "../lib/forge.mjs";
+import { assertClean, assertNoGitOperation, cleanOutput, git, remoteBranchSha, repositoryAt } from "../lib/git.mjs";
 import { withRepositoryLock } from "../lib/lock.mjs";
 import { updateMetadata, workspaceSummary } from "../lib/metadata.mjs";
 import { locateWorkspaces, ownedSession, validateRemote } from "../lib/session.mjs";
 import { dependencyState, lockfilesAt } from "../lib/setup.mjs";
 import { verifyRefusal } from "../lib/verification.mjs";
 
-async function pullRequest(root, metadata, prUrl) {
-  const config = await workspaceConfig();
-  const detected = await detectForge({ root, remote: metadata.remote, baseSha: metadata.baseSha, config });
-  const forge = requireForge(changeRequestForge(detected, prUrl), "adopt");
+async function readPullRequest(forge, root, prUrl) {
   let request;
   try {
     request = await forge.changeRequest(root, prUrl);
@@ -23,6 +20,63 @@ async function pullRequest(root, metadata, prUrl) {
     throw new WorkspaceError(`${forge.cli} returned an unexpected pull request description`, JSON.stringify(request));
   }
   return request;
+}
+
+async function pullRequest(root, metadata, prUrl) {
+  const forge = await pullRequestForge(root, metadata, prUrl, "adopt");
+  return { forge, request: await readPullRequest(forge, root, prUrl) };
+}
+
+const prFields = (request, url) => ({ state: request.state, baseBranch: request.baseBranch ?? null, headSha: request.headSha, url });
+
+// A merged pull request takes no more code, so nothing is adopted: its
+// post-merge steps run from the control checkout on the updated default
+// branch, where they act on what actually merged (decision 0026).
+function mergedReport(request, prUrl, { worktreePath = null, controlWorktreePath = null, defaultBranch = null } = {}) {
+  const control = controlWorktreePath ?? "the repository's control checkout";
+  return {
+    operation: "adopt",
+    merged: true,
+    adopted: false,
+    pr: prFields(request, prUrl),
+    worktreePath,
+    nextAction: `The pull request has merged, so no worktree takes changes for it. Run the post-merge steps its description lists from ${control}, after updating it to the latest ${defaultBranch ?? "default branch"} (git pull --ff-only there); no ibni workspace is needed. A further code change is a new /wettaq.`,
+  };
+}
+
+// What a fresh follow-up session reads before it changes anything: the
+// checks as they stand (never waited on) and how to read the review
+// comments. Each part reports its own failure rather than failing adopt.
+async function followUpContext(forge, root, prUrl) {
+  let checks;
+  try {
+    checks = checksSummary(await forge.checks(root, prUrl));
+  } catch (error) {
+    checks = { state: null, reason: `could not read the checks: ${error.message.split("\n")[0]}` };
+  }
+  const discussion = await forge.discussion(root, prUrl);
+  return {
+    checks,
+    reviewComments: {
+      ...discussion,
+      nextAction: `Read the pull request's comments and review comments before changing anything: ${discussion.commands.join(" ; ")}`,
+    },
+  };
+}
+
+// No retained workspace records the URL: when it names a merged pull request
+// on a forge (read from the URL alone), say so instead of refusing, since a
+// merged pull request's workspace is often cleaned up already.
+async function mergedWithoutWorkspace(cwd, prUrl) {
+  const forge = changeRequestForge({ name: null }, prUrl);
+  if (!forge.name) return null;
+  try {
+    const { root } = await repositoryAt(cwd);
+    const request = await forge.changeRequest(root, prUrl);
+    return request.state === "MERGED" ? mergedReport(request, prUrl, { controlWorktreePath: root }) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function workspaceForPullRequest(cwd, prUrl) {
@@ -47,10 +101,21 @@ async function workspaceForPullRequest(cwd, prUrl) {
 // workspace. Every check runs before any change; a failure changes nothing.
 export async function adoptWorkspace({ cwd = process.cwd(), prUrl }) {
   if (!prUrl || !/^https?:\/\//.test(prUrl)) throw new WorkspaceError("adopt requires --pr <pull-request-url>");
-  const initial = await workspaceForPullRequest(cwd, prUrl);
+  let initial;
+  try {
+    initial = await workspaceForPullRequest(cwd, prUrl);
+  } catch (error) {
+    const merged = error instanceof WorkspaceError && /no retained workspace/.test(error.message) ? await mergedWithoutWorkspace(cwd, prUrl) : null;
+    if (merged) return merged;
+    throw error;
+  }
+  // A merged pull request is reported before any ownership check: nothing is
+  // taken over, so a dirty or busy worktree does not matter to it.
+  const first = await pullRequest(initial.worktreePath, initial.metadata, prUrl).catch(() => null);
+  if (first?.request.state === "MERGED") return mergedReport(first.request, prUrl, initial.metadata);
   const previousSessionId = initial.metadata.sessionId;
   const commonDirectory = initial.metadata.commonDirectory;
-  return withRepositoryLock(commonDirectory, async () => {
+  const adopted = await withRepositoryLock(commonDirectory, async () => {
     const located = await workspaceForPullRequest(cwd, prUrl);
     if (located.metadata.sessionId !== previousSessionId) {
       throw new WorkspaceError("the workspace changed owner while it was being adopted");
@@ -64,7 +129,8 @@ export async function adoptWorkspace({ cwd = process.cwd(), prUrl }) {
     await validateRemote(session);
     if (!metadata.publishedSha) throw new WorkspaceError("the workspace has never been published");
 
-    const remote = await pullRequest(repository.root, metadata, prUrl);
+    const { forge, request: remote } = await pullRequest(repository.root, metadata, prUrl);
+    if (remote.state === "MERGED") return { result: mergedReport(remote, prUrl, metadata) };
     if (remote.state !== "OPEN") {
       throw new WorkspaceError(`the pull request is ${remote.state.toLowerCase()}, not open`, "Only an open pull request can take follow-up changes; start a new /wettaq instead.");
     }
@@ -93,11 +159,19 @@ export async function adoptWorkspace({ cwd = process.cwd(), prUrl }) {
     const treeSha = cleanOutput(await git(repository.root, ["rev-parse", "HEAD^{tree}"]));
     const verifyGap = verifyRefusal(session.metadata, treeSha, "carry on");
     return {
-      operation: "adopt",
-      ...workspaceSummary({ metadata: session.metadata }),
-      headSha: head,
-      dependencies: dependencyState(session.metadata.setup, await lockfilesAt(repository.root, "HEAD"), sessionId),
-      verified: verifyGap ? { current: false, ...verifyGap } : { current: true },
+      forge,
+      root: repository.root,
+      result: {
+        operation: "adopt",
+        ...workspaceSummary({ metadata: session.metadata }),
+        headSha: head,
+        pr: prFields(remote, prUrl),
+        dependencies: dependencyState(session.metadata.setup, await lockfilesAt(repository.root, "HEAD"), sessionId),
+        verified: verifyGap ? { current: false, ...verifyGap } : { current: true },
+      },
     };
   });
+  // Read once ownership has moved, outside the lock, since the forge can be slow.
+  if (!adopted.forge) return adopted.result;
+  return { ...adopted.result, ...await followUpContext(adopted.forge, adopted.root, prUrl) };
 }

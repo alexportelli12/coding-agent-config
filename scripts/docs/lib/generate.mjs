@@ -37,7 +37,7 @@ const SKILL_GROUPS = {
 const CLI_GROUPS = [
   {
     title: "The agent's lifecycle",
-    text: "The agent runs these during a `/wettaq` run, in this order. `verify` runs once before the change and again whenever the committed code changes. `setup` runs only when `adopt` says the dependencies are out of date, or after a commit changes a lockfile. `record` runs whenever a browser check or review finishes, and `publish-media` only when the run has screenshots. `publish` brings in the latest default branch itself; the agent runs `sync` first when it picks up an existing pull request for a follow-up.",
+    text: "The agent runs these during a `/wettaq` run, in this order. `verify` runs once before the change and again whenever the committed code changes. `setup` runs only when `adopt` says the dependencies are out of date, or after a commit changes a lockfile. `record` runs whenever a browser check or review finishes, and `publish-media` only when the run has screenshots. `publish` brings in the latest default branch itself, and keeps the evidence when that changes nothing. The agent runs `sync` first when it picks up an existing pull request for a follow-up. `ci-wait` ends the run: it waits for the pull request's checks, and the run is done only when they pass.",
     diagram: [
       "sequenceDiagram",
       "  participant A as Agent",
@@ -63,8 +63,11 @@ const CLI_GROUPS = [
       "  end",
       "  A->>G: open the pull request",
       "  A->>I: mark-pr",
+      "  A->>I: ci-wait",
+      "  I->>G: wait for the pull request's checks",
+      "  Note over A: fixes a failure and publishes again, up to three rounds",
     ].join("\n"),
-    names: ["prepare", "setup", "verify", "sync", "record", "record-evidence", "publish", "publish-media", "mark-pr"],
+    names: ["prepare", "setup", "verify", "sync", "record", "record-evidence", "publish", "publish-media", "mark-pr", "ci-wait"],
   },
   {
     title: "Commands you might run",

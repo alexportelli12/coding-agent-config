@@ -19,6 +19,7 @@ export async function appendHistory(cwd, sessionId, field, item) {
 
 function stepOutcome(result, error) {
   if (error) return "failed";
+  if (result?.operation === "ci-wait") return result.state === "green" ? "succeeded" : `ci-${result.state}`;
   if (result?.published === false) return "requires-evidence";
   if (result?.recorded === false) return result.requiresVerify ? "requires-verify" : "not-recorded";
   if (result?.passed === false || (result?.setup?.ran && !result.setup.passed)) return "failed";
@@ -59,6 +60,7 @@ export function summarizeTimings(metadata) {
   const reviews = records.filter((record) => record.kind === "review");
   const accepted = reviews.reduce((total, record) => total + (record.accepted ?? 0), 0);
   const verify = records.filter((record) => record.kind === "verify");
+  const ci = records.filter((record) => record.kind === "ci");
   return {
     steps: (metadata.steps ?? []).map((step) => ({
       ...step,
@@ -73,5 +75,13 @@ export function summarizeTimings(metadata) {
     },
     review: { ...findings("review"), accepted },
     qa: findings("qa"),
+    // Each ibni ci-wait; a round is one that ended with a failed check
+    // (decision 0026). state is the last wait's, null before any.
+    ci: {
+      waits: ci.length,
+      rounds: ci.filter((record) => record.state === "failed").length,
+      state: ci.at(-1)?.state ?? null,
+      history: ci.map(({ at, state, headSha, failed, durationMs }) => ({ at, state, headSha, failed, durationMs })),
+    },
   };
 }

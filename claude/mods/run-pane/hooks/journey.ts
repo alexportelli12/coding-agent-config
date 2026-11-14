@@ -32,6 +32,7 @@ export type RunSnapshot = {
   verify?: { attempts: number; passed: number; failed: number; history: { outcome: string; at?: string }[] }
   review?: RunGate
   qa?: RunGate
+  ci?: { waits: number; rounds: number; state: string | null }
   error?: string
 }
 
@@ -47,6 +48,7 @@ export function snapshotFrom(sessionId: string, info: unknown, stats: unknown): 
   const merged: Json = { ...record(info), ...record(stats) }
   const steps = Array.isArray(merged['steps']) ? merged['steps'].map(record) : []
   const review = record(merged['review'])
+  const ci = record(merged['ci'])
   return {
     sessionId,
     branch: typeof merged['branch'] === 'string' ? merged['branch'] : undefined,
@@ -69,6 +71,13 @@ export function snapshotFrom(sessionId: string, info: unknown, stats: unknown): 
         }
       : undefined,
     qa: merged['qa'] as RunSnapshot['qa'],
+    ci: merged['ci']
+      ? {
+          waits: Number(ci['waits'] ?? 0),
+          rounds: Number(ci['rounds'] ?? 0),
+          state: typeof ci['state'] === 'string' ? ci['state'] : null,
+        }
+      : undefined,
   }
 }
 
