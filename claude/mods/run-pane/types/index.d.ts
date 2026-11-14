@@ -27,8 +27,9 @@ export type RunPaneSnapshot = {
   verify?: { attempts: number; passed: number; failed: number; history: { outcome: string }[] }
   review?: RunPaneGate
   qa?: RunPaneGate
-  // The last ibni ci-wait: state is green, failed, pending, none, cancelled
-  // or stale, null before any wait; rounds counts the waits that failed.
+  // The last ibni ci-wait: state is green, failed, pending, none (no CI
+  // configured, so done), cancelled or stale, null before any wait; rounds
+  // counts the waits that failed.
   ci?: { waits: number; rounds: number; state: string | null }
   error?: string
 }

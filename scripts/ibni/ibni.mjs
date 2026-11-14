@@ -3,7 +3,7 @@
 // in commands/, and the Git, locking, metadata and config helpers they share in lib/.
 import { pathToFileURL } from "node:url";
 import { adoptWorkspace } from "./commands/adopt.mjs";
-import { DEFAULT_CI_TIMEOUT_MINUTES, waitForCi } from "./commands/ci-wait.mjs";
+import { CI_DONE_STATES, DEFAULT_CI_TIMEOUT_MINUTES, waitForCi } from "./commands/ci-wait.mjs";
 import { cleanupWorkspaces } from "./commands/cleanup.mjs";
 import { workspaceInfo } from "./commands/info.mjs";
 import { listWorkspaces } from "./commands/list.mjs";
@@ -223,13 +223,17 @@ export const COMMANDS = {
       "state is stale, with a reason and nextAction, and nothing is waited on. Then waits up to --timeout-minutes",
       "for the checks to register and finish: GitHub through gh pr checks --watch, GitLab by polling the merge",
       "request's head pipeline through glab api. Holds no lock while it waits.",
-      "state is green, failed, pending (still running at the timeout), none (the forge reports no checks),",
-      "cancelled or stale. failed lists each failed check (name, url, logTail): the last 60 lines of a failed",
+      "state is green, failed, pending, none, cancelled or stale. none means no checks and no CI configuration",
+      "in the published commit (no .github/workflows/*.yml or *.yaml, no .gitlab-ci.yml), so the run is done.",
+      "Where CI is configured, a pull request with no checks yet is waited on until the timeout and then",
+      "reported as pending, like checks still running; ciConfig lists the files found.",
+      "failed lists each failed check (name, url, logTail): the last 60 lines of a failed",
       "GitHub Actions or GitLab job's log, redacted; a check from another service gives only its url.",
-      "Prints one line of JSON with prUrl, headSha, durationMs and, unless green, nextAction; exits 1 unless green.",
-      "Each wait is recorded, and stats reports ci (waits, rounds that failed, the last state). A wait that",
-      "ends green, failed, none or cancelled also adds a line to the run log, <paths.worktreeRoot>/.ibni/runs.jsonl,",
-      "which outlives the workspace.",
+      "Prints one line of JSON with prUrl, headSha, durationMs and, unless green or none, nextAction;",
+      "exits 1 unless green or none.",
+      "Each wait is recorded, and stats reports ci (waits, rounds that failed, the last state). Each wait",
+      "except a stale one also adds a line to the run log, <paths.worktreeRoot>/.ibni/runs.jsonl, which",
+      "outlives the workspace: outcome green, no-ci, ci-failed, ci-pending or ci-blocked (cancelled).",
       SESSION_LOOKUP,
     ],
     options: {
@@ -237,7 +241,7 @@ export const COMMANDS = {
       "timeout-minutes": `How long to wait for the checks; defaults to ${DEFAULT_CI_TIMEOUT_MINUTES}.`,
     },
     timed: true,
-    failed: (result) => result.state !== "green",
+    failed: (result) => !CI_DONE_STATES.includes(result.state),
     run: (options) => waitForCi({ sessionId: options.session, timeoutMinutes: options["timeout-minutes"] }),
   },
   adopt: {

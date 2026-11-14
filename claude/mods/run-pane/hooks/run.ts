@@ -49,7 +49,6 @@ const followUps = (run: RunPaneSnapshot | null) => `start follow-ups in a new se
 
 const CI_WAITING: Record<string, string> = {
   pending: 'CI still running',
-  none: 'no CI checks reported',
   cancelled: 'CI cancelled',
   stale: 'CI is behind the branch',
 }
@@ -61,6 +60,10 @@ export function nudge(run: RunPaneSnapshot | null, percent: number | null, thres
     const key = `ci:${run.sessionId}:${state ?? 'unchecked'}:${run.ci?.waits ?? 0}`
     if (state === 'green') {
       return { key, badge: `✓ ${pr} CI green`, tone: 'success', text: `Run done; ${followUps(run)}.` }
+    }
+    // none: the repository configures no CI, so there is nothing to wait for.
+    if (state === 'none') {
+      return { key, badge: `✓ ${pr} · no CI configured`, tone: 'success', text: `Run done; ${followUps(run)}.` }
     }
     if (state === 'failed') {
       const round = run.ci?.rounds ?? 1

@@ -21,7 +21,7 @@ export function runIdOf(metadata) {
     ?? `${metadata.worktreePath}@${metadata.createdAt}`;
 }
 
-// outcome: green, ci-failed or ci-blocked for a ci event; merged, closed or
+// outcome: one of CI_OUTCOMES' values for a ci event; merged, closed or
 // abandoned (pruned without a pull request) for a removal.
 export function runLogEntry(metadata, { event, outcome, recordedAt = new Date().toISOString() }) {
   const timings = summarizeTimings(metadata);
@@ -49,7 +49,7 @@ export function runLogEntry(metadata, { event, outcome, recordedAt = new Date().
     qa: { passes: timings.qa.rounds, findings: timings.qa.findings },
     // A round here is one CI run that finished (the reader counts a green
     // first wait as one round); stats' ci.rounds counts only failed ones.
-    ci: { rounds: timings.ci.history.filter((wait) => Object.hasOwn(CI_OUTCOMES, wait.state)).length, state: timings.ci.state },
+    ci: { rounds: timings.ci.history.filter((wait) => FINISHED_CI_STATES.includes(wait.state)).length, state: timings.ci.state },
   };
 }
 
@@ -63,4 +63,12 @@ export async function appendRunLog(worktreeRoot, entry) {
   ));
 }
 
-export const CI_OUTCOMES = { green: "green", failed: "ci-failed", none: "ci-blocked", cancelled: "ci-blocked" };
+// A ci-wait state's outcome, matching /wettaq's CI section: green and no-ci
+// end the run as done; ci-pending (still running, or configured CI that never
+// registered checks, at the timeout) is reported as pending; ci-blocked is a
+// cancelled check. A stale wait says nothing about CI and is not logged.
+export const CI_OUTCOMES = { green: "green", none: "no-ci", failed: "ci-failed", pending: "ci-pending", cancelled: "ci-blocked" };
+
+// The waits that saw a CI run finish; one still running is not a round, and
+// none means there was no CI run.
+const FINISHED_CI_STATES = ["green", "failed", "cancelled"];

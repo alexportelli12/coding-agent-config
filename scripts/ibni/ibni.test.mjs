@@ -1858,6 +1858,9 @@ test("a fresh session adopts an open pull request's workspace and delivers a fol
   assert.deepEqual(stats.json.steps.filter((step) => step.step === "adopt").map((step) => step.sessionId), [sessionB]);
 });
 
+const runLog = async (fixture) => (await readFile(path.join(fixture.worktrees, ".ibni", "runs.jsonl"), "utf8").catch(() => ""))
+  .split("\n").filter(Boolean).map((line) => JSON.parse(line));
+
 // A command that exits 1 still prints its JSON; lifecycle parses only exit 0.
 async function lifecycleJson(fixture, cwd, operation, options, allowedExitCodes = [0, 1], extraEnv = {}) {
   const result = await lifecycle(fixture, cwd, operation, options, allowedExitCodes, extraEnv);
@@ -1879,9 +1882,23 @@ test("ci-wait reports green, each failure with its redacted log tail, no checks 
   await setGhState(fixture.gh, 7, "OPEN");
   await setGhHead(fixture.gh, 7, branch, publishedSha);
 
-  // Catches: a pull request with no checks read as green.
-  const none = await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId, "timeout-minutes": "0.005" }, [1]);
-  assert.deepEqual([none.json.state, none.json.failed, none.json.prUrl, none.json.headSha], ["none", [], "https://example.test/pull/7", publishedSha]);
+  // Catches: a repository with no CI configuration read as green, or kept
+  // waiting although nothing will ever report.
+  const none = await lifecycle(fixture, fixture.control, "ci-wait", { session: sessionId, "timeout-minutes": "0.005" });
+  assert.deepEqual([none.json.state, none.json.failed, none.json.ciConfig, none.json.nextAction, none.json.prUrl, none.json.headSha],
+    ["none", [], [], undefined, "https://example.test/pull/7", publishedSha]);
+  assert.deepEqual((await runLog(fixture)).map(({ outcome }) => outcome), ["no-ci"]);
+
+  // Catches: configured CI whose checks have not registered yet read as
+  // having no CI, so the run says done before CI ran.
+  await mkdir(path.join(worktreePath, ".github", "workflows"), { recursive: true });
+  await commit(worktreePath, ".github/workflows/ci.yml", "on: pull_request\n", "add CI");
+  await recordEvidence(fixture, prepared);
+  assert.equal((await lifecycle(fixture, worktreePath, "publish", { session: sessionId })).json.published, true);
+  await setGhHead(fixture.gh, 7, branch, (await git(worktreePath, "rev-parse", "HEAD")).stdout.trim());
+  const unregistered = await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId, "timeout-minutes": "0.005" }, [1]);
+  assert.deepEqual([unregistered.json.state, unregistered.json.total, unregistered.json.ciConfig], ["pending", 0, [".github/workflows/ci.yml"]]);
+  assert.match(unregistered.json.nextAction, /No checks registered .*\.github\/workflows\/ci\.yml.*report CI as pending/);
 
   // Catches: a failed Actions job reported without its log, an unredacted
   // secret in the tail, or an external status given a log it does not have.
@@ -1917,9 +1934,9 @@ test("ci-wait reports green, each failure with its redacted log tail, no checks 
   assert.match(stale.json.nextAction, /ibni publish/);
 
   const stats = await lifecycle(fixture, fixture.control, "stats", { session: sessionId });
-  assert.deepEqual({ ...stats.json.ci, history: undefined }, { waits: 6, rounds: 1, state: "stale", history: undefined });
+  assert.deepEqual({ ...stats.json.ci, history: undefined }, { waits: 7, rounds: 1, state: "stale", history: undefined });
   assert.deepEqual(stats.json.steps.filter((step) => step.step === "ci-wait").map((step) => step.outcome),
-    ["ci-none", "ci-failed", "ci-cancelled", "ci-pending", "succeeded", "ci-stale"]);
+    ["ci-none", "ci-pending", "ci-failed", "ci-cancelled", "ci-pending", "succeeded", "ci-stale"]);
   await lifecycle(fixture, fixture.control, "ci-wait", { session: sessionId, "timeout-minutes": "0" }, [2]);
 });
 
@@ -2813,8 +2830,6 @@ const aged = (days) => (metadata) => {
   };
 };
 
-const runLog = async (fixture) => (await readFile(path.join(fixture.worktrees, ".ibni", "runs.jsonl"), "utf8").catch(() => ""))
-  .split("\n").filter(Boolean).map((line) => JSON.parse(line));
 
 test("the run log records a finished CI wait and a removed workspace under the runId prepare assigned and adopt kept", async (t) => {
   const fixture = await createFixture(t);
@@ -2828,10 +2843,11 @@ test("the run log records a finished CI wait and a removed workspace under the r
   await setGhHead(fixture.gh, 11, branch, headSha);
   await lifecycle(fixture, fixture.control, "record", { session: sessionId, review: "2", accepted: "1" });
 
-  // Catches: a timed-out wait logged as if the run ended.
+  // Catches: a timed-out wait missing from the log, though /wettaq reports
+  // the run as pending there, or counted as a finished CI round.
   await setGhChecks(fixture.gh, 11, [ghCheck("slow", "pending")]);
   await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId, "timeout-minutes": "0.005" }, [1]);
-  assert.deepEqual(await runLog(fixture), []);
+  assert.deepEqual((await runLog(fixture)).map(({ outcome, ci }) => [outcome, ci.rounds]), [["ci-pending", 0]]);
   await setGhChecks(fixture.gh, 11, [ghCheck("verify", "fail")]);
   await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId }, [1]);
   await setGhChecks(fixture.gh, 11, [ghCheck("verify", "pass")]);
@@ -2850,8 +2866,8 @@ test("the run log records a finished CI wait and a removed workspace under the r
 
   const lines = await runLog(fixture);
   assert.deepEqual(lines.map(({ event, outcome, ci }) => [event, outcome, ci.state, ci.rounds]),
-    [["ci", "ci-failed", "failed", 1], ["ci", "green", "green", 2], ["removed", "merged", "green", 2]]);
-  const [, green, removed] = lines;
+    [["ci", "ci-pending", "pending", 0], ["ci", "ci-failed", "failed", 1], ["ci", "green", "green", 2], ["removed", "merged", "green", 2]]);
+  const [, , green, removed] = lines;
   assert.deepEqual(Object.keys(removed), ["version", "runId", "recordedAt", "event", "repository", "branch", "worktreePath", "prUrl", "startedAt", "outcome", "steps", "verify", "review", "qa", "ci"]);
   assert.deepEqual([green.version, green.runId, green.repository, green.branch, green.worktreePath, green.prUrl],
     [1, runId, "control", branch, worktreePath, "https://example.test/pull/11"]);

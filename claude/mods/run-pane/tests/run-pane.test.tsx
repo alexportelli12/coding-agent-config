@@ -123,6 +123,18 @@ test('once CI is green the band says the run is done and where follow-ups go, an
   await ui.unmount()
 })
 
+// Catches: a repository with no CI configuration shown as waiting on CI
+// forever, when ci-wait and /wettaq count it as done.
+test('with no CI configured the band says the run is done', async ($, on) => {
+  engine(on, { info, stats: { ...stats, ci: { waits: 1, rounds: 0, state: 'none', history: [] } } })
+  await $.tool.call({ tool: 'Bash', command: `ibni stats --session ${SESSION}` })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /PR #42/ }))?.text).toBe(
+    ' ✓ PR #42 · no CI configured   Run done; start follow-ups in a new session with /wettaq https://github.com/alexportelli12/example/pull/42.',
+  )
+  await ui.unmount()
+})
+
 // Catches: a delivered PR read as done while its CI is still running or red.
 test('while CI is pending or failed the band shows that state, not done', async ($, on) => {
   const cases = [

@@ -17,6 +17,7 @@ Runs also verified again after syncing with the default branch when the sync bro
 
 - **`ibni ci-wait` waits on the forge's checks.** It runs in the background, through `gh pr checks --watch` on GitHub or `glab` on GitLab, and prints one line of JSON: the state, the failed jobs and the end of each failure's log.
 - **A run is done only on green.** It reports done when CI passes, after up to three rounds of fixes, or with a report of what blocks it.
+- **No checks means done only without CI.** A pull request with no checks is done only when the published commit has no `.github/workflows/*.yml` or `.yaml` and no `.gitlab-ci.yml`. Otherwise its checks have not registered yet, so `ci-wait` waits until its timeout and reports pending.
 - **No second verify when the sync brought in nothing.** The tree `ibni publish` would push is the one `ibni verify` passed, so the evidence still holds. A test pins that behaviour, and `/wettaq` says to verify again only when `publish` reports `requiresRevalidation`.
 - **Post-merge steps belong to the run.** The pull request lists them, and the follow-up session runs them.
 - **Stacks keep the no-force-push rule.** When a lower pull request merges, `ibni` merges the new base into the next branch and retargets its pull request with `gh pr edit --base`. GitHub's native stacked pull requests are not adopted.

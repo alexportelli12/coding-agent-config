@@ -1,5 +1,5 @@
 import { WorkspaceError } from "../lib/errors.mjs";
-import { checksState, failedChecks, pullRequestForge } from "../lib/checks.mjs";
+import { checksState, ciConfiguration, failedChecks, pullRequestForge } from "../lib/checks.mjs";
 import { cleanOutput, git, remoteBranchSha } from "../lib/git.mjs";
 import { workspaceConfig } from "../lib/config.mjs";
 import { appendRunLog, CI_OUTCOMES, runLogEntry } from "../lib/run-log.mjs";
@@ -10,6 +10,9 @@ export const DEFAULT_CI_TIMEOUT_MINUTES = 45;
 const POLL_MS = 15_000;
 // Checks register a little after a push; until then the forge reports none.
 const REGISTER_GRACE_MS = 120_000;
+// The states that end a run: green, and none (no CI configured, so nothing
+// to wait for). Every other state exits 1.
+export const CI_DONE_STATES = ["green", "none"];
 
 // Why CI on the pull request cannot speak for this session's work, or null:
 // it tests the head the session published, and only that.
@@ -74,8 +77,12 @@ export async function waitForCi({ cwd = process.cwd(), sessionId, timeoutMinutes
   if (stale) return finish({ state: "stale", ...stale });
 
   const pause = (until) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(POLL_MS, until - Date.now()))));
+  // With CI configured, no checks only means they have not registered yet,
+  // so the wait lasts until the deadline. Without it, a short grace still
+  // catches a check from another service, such as a deploy preview.
+  const ciConfig = await ciConfiguration(root, metadata.publishedSha);
   let checks = await forge.checks(root, prUrl);
-  const registered = Math.min(deadline, startedAt + REGISTER_GRACE_MS);
+  const registered = ciConfig.length > 0 ? deadline : Math.min(deadline, startedAt + REGISTER_GRACE_MS);
   while (checks.length === 0 && Date.now() < registered) {
     await pause(registered);
     checks = await forge.checks(root, prUrl);
@@ -100,14 +107,19 @@ export async function waitForCi({ cwd = process.cwd(), sessionId, timeoutMinutes
       nextAction: "Look at who pushed before changing anything; the checks no longer describe the session's commit.",
     });
   }
-  const state = checksState(checks);
+  // none is done only where the commit configures no CI at all.
+  const unregistered = checks.length === 0 && ciConfig.length > 0;
+  const state = unregistered ? "pending" : checksState(checks);
   const failed = await failedChecks(forge, root, checks);
+  const minutes = timeoutMs / 60_000;
   const nextAction = {
     green: undefined,
     failed: "Fix each failure from its logTail (or its url), commit, verify, record-evidence and publish, then ibni ci-wait again; report what blocks after three rounds.",
-    pending: `Checks were still running after ${timeoutMs / 60_000} minutes; run ibni ci-wait again, or report the stuck check.`,
-    none: "The forge reports no checks for this pull request; say so in the report, since nothing proves CI green.",
+    pending: unregistered
+      ? `No checks registered within ${minutes} minutes although the commit configures CI (${ciConfig.join(", ")}); report CI as pending, naming those files.`
+      : `Checks were still running after ${minutes} minutes; report CI as pending, naming the running checks.`,
+    none: undefined,
     cancelled: "A check was cancelled; rerun it on the forge or report it.",
   }[state];
-  return finish({ state, failed, total: checks.length, ...(nextAction ? { nextAction } : {}) });
+  return finish({ state, failed, total: checks.length, ciConfig, ...(nextAction ? { nextAction } : {}) });
 }

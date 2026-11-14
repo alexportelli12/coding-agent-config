@@ -3,6 +3,15 @@
 import { redact } from "../../lib/redact.mjs";
 import { workspaceConfig } from "./config.mjs";
 import { changeRequestForge, detectForge, requireForge } from "./forge.mjs";
+import { cleanOutput, git } from "./git.mjs";
+
+// The CI configuration files a commit holds: GitHub Actions workflows and
+// GitLab's pipeline file. Without any, a pull request with no checks has
+// nothing to wait for; with one, no checks means they have not registered yet.
+export async function ciConfiguration(root, ref) {
+  const listed = cleanOutput(await git(root, ["ls-tree", "--name-only", ref, "--", ".github/workflows/", ".gitlab-ci.yml"]));
+  return listed.split("\n").filter((file) => file === ".gitlab-ci.yml" || /^\.github\/workflows\/[^/]+\.ya?ml$/.test(file));
+}
 
 // The forge that holds the session's recorded pull request; adopt and cleanup
 // read it the same way.

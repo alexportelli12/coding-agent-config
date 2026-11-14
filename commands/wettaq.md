@@ -149,7 +149,10 @@ Run `ibni ci-wait --session "<sessionId>"` in the background and wait for it.
   done.
 - `failed`: fix the failed jobs from their log tails in a new commit, verify,
   record evidence and publish, then wait again; at most three rounds.
-- `none`: the repository runs no pull-request checks; done, and say so.
+- `none`: the repository has no CI configuration; done, and say so in
+  Evidence.
+- `pending`: checks still running, or configured CI that registered none, at
+  the timeout; report CI as pending with its `nextAction`. The run is not done.
 - `stale`: follow its `nextAction`, then wait again.
 - Anything else, or a failure outside scope: report the run as blocked, with
   the jobs and log tails.
