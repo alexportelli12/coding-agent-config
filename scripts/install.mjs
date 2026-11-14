@@ -342,7 +342,7 @@ export async function install(options = {}) {
   const settingsPlan = settingsDesired ? await planSettingsMerge({ ...settingsFiles, desired: settingsDesired }) : null;
   conflicts.push(...(settingsPlan?.conflicts ?? []));
   // Codex's hooks.json is shared with the user and other tools (herdr), so
-  // only the guard and loop-breaker groups are merged in, by ownership.
+  // only the guard and post-tool (loop breaker and test-design nudge) groups are merged in, by ownership.
   const codexHooksFiles = {
     hooksFile: path.join(options.codex ?? path.join(home, ".codex"), "hooks.json"),
     stateFile: path.join(home, ".local/share/mexxi/state/codex-hooks.json"),
@@ -537,7 +537,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (result.dryRun) process.stdout.write("Nothing would stop an install, and nothing was changed.\n");
     if (segwiUnits) reportSegwiUnits(segwiUnits);
     if (codexHooksChanged) {
-      process.stdout.write("Codex hooks changed: start codex and trust the mexxi guard and loop breaker once in /hooks (Codex skips untrusted hooks).\n");
+      process.stdout.write("Codex hooks changed: start codex and trust the mexxi guard and post-tool hooks once in /hooks (Codex skips untrusted hooks).\n");
     }
     // The installer never touches a host's MCP registry; these are for you to run.
     // `install --check` fails until each registered server matches them.

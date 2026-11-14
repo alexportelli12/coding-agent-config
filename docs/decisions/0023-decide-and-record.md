@@ -9,13 +9,13 @@ Extends [0007](0007-implementers-implement-reviewers-judge.md).
 
 ## Context
 
-`/wettaq` split runs into attended and unattended ones. An unattended run took the most reasonable reading and listed it as an assumption. An attended run could stop to ask, and did: 16 stops across 88 runs were permission asks or menus of options, such as "shall I go ahead?" or "option A or B?". Each one pulled the person back in for a choice the pull request could have reversed cheaply.
+`/wettaq` split runs into attended and unattended ones. An unattended run took the most reasonable reading and listed it as an assumption. An attended run could stop to ask, and did. Across 88 runs, 16 stops were permission asks or menus of options, such as "shall I go ahead?" or "option A or B?". Each one pulled the person back in for a choice the pull request could have reversed cheaply.
 
 Another 13 turns ended with "I'll carry on when the check finishes". The background job then finished with nobody listening, and the run sat idle until the person noticed.
 
 ## Decision
 
-- **Every run decides reversible choices itself.** Attended or not, a run takes the most reasonable reading from the repository and its product principles, carries on, and lists the choice in the pull request under **Decisions and assumptions**, worded so the reviewer can reverse it cheaply.
+- **Every run decides reversible choices itself.** Attended or not, a run takes the most reasonable reading from the repository and its product principles, and carries on. It lists the choice in the pull request under **Decisions and assumptions**, worded so the reviewer can reverse it cheaply.
 - **Only two kinds of question stop a run:**
   - a one-way door: a destructive or irreversible data change, a security or privacy decision, a public API or schema break, or anything the pull request cannot undo;
   - product direction: what the product should do, when neither the request nor the repository's principles say.

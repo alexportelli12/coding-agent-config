@@ -1,11 +1,12 @@
-// OpenCode's side of the shared guard and loop breaker. OpenCode has no
-// command hooks, so this plugin calls the same modules Claude Code and Codex
-// run as hook scripts. The rendered opencode.json loads it by its path in the
+// OpenCode's side of the shared guard, loop breaker and test-design nudge.
+// OpenCode has no command hooks, so this plugin calls the same modules Claude
+// Code and Codex run as hook scripts. The rendered opencode.json loads it by its path in the
 // mexxi clone, so the relative imports below resolve there.
 //
 // A refused call throws, which OpenCode reports to the agent as the tool's
 // error. A third identical failure appends the loop breaker's message to the
-// tool's output.
+// tool's output, and the session's first test-file edit appends the nudge to
+// load test-design.
 //
 // The guard is imported when a call arrives, not when the plugin loads: a
 // guard that cannot load (a half-finished checkout, a bad edit) then refuses
@@ -53,6 +54,13 @@ async function server({ directory }) {
         if (message) output.output = `${output.output ?? ""}\n\nmexxi loop breaker: ${message}`;
       } catch {
         // Counting is advisory and must never fail the tool call.
+      }
+      try {
+        const { firstTestEdit } = await import("../../scripts/hooks/test-design-nudge.mjs");
+        const nudge = await firstTestEdit(event);
+        if (nudge) output.output = `${output.output ?? ""}\n\nmexxi: ${nudge}`;
+      } catch {
+        // The nudge is advisory too.
       }
     },
   };

@@ -148,6 +148,9 @@ one fail. Use the repository's existing test infrastructure. If a criterion
 genuinely requires E2E and the repository has no suitable infrastructure, stop
 and report the gap rather than introducing a framework as incidental work.
 
+Update the docs that describe a changed behaviour in the same commit as the
+change.
+
 While working, you and delegated agents run targeted checks (a focused test,
 typecheck, rendered check, or the repository's selective verification)
 directly, but never the full repository gauntlet; a selective pass is
@@ -157,8 +160,8 @@ gate, and only through `ibni verify`.
 
 ## Final Verification
 
-When implementation is settled, use the repository's intentional auto-fix
-mechanism if one exists. Then inspect the diff, stage only intended changes and
+When implementation is settled, run the repository's formatter and any other
+intentional auto-fix mechanism it has. Then inspect the diff, stage only intended changes and
 commit them (load `commit-pr-writing` for the message), because `ibni verify`
 refuses a tree with uncommitted or untracked work. Then run the verify command,
 the authoritative final gate. A failure means the implementation is
@@ -181,7 +184,7 @@ run's requirements re-read; later stages rely on it.
 For meaningful user-facing work, after final verification load `rendered-qa`
 and run a proportional pass on the affected routes and states. That one pass
 produces the evidence the reviewer and the pull request use. Resolve its
-`critical`, `high`, and `medium` findings before review, committing the fix,
+`blocker` and `major` findings before review, committing the fix,
 rerunning the verify command and refreshing the affected evidence when code
 changes. Do not
 commit screenshots or pixel baselines, and do not present subjective
@@ -253,7 +256,7 @@ and a merge decision. Report briefly:
 
 - the pull-request link;
 - `worktreePath` and `branch`;
-- unresolved low findings worth knowing during product review;
+- the **Left for later** list worth knowing during product review;
 - the `prepare` cleanup summary: removed workspaces, and kept ones with reasons.
 
 Do not merge. Keep the worktree for follow-up changes, in this session or in a

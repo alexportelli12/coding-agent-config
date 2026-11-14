@@ -4,7 +4,7 @@ sources:
   - skills/implement-review/SKILL.md
   - skills/test-design/SKILL.md
   - commands/wettaq.md
-reviewed: 2026-10-25
+reviewed: 2026-11-14
 ---
 
 # Reviewing a mexxi pull request
@@ -53,8 +53,8 @@ The line also names what did not run and why, such as no browser check for a cha
 
 - **What changed**, grouped by behaviour rather than by file.
 - **Decisions and assumptions**: what the agent decided without asking you. Each is worded so you can reverse it cheaply, usually with one follow-up request.
-- **Gaps**: what the agent could not do or prove, such as a flow it could not reach or a test it could not write.
-- **Details**, collapsed: everything else, such as review findings and where the evidence files are. It lists each new test with the bug it catches and how the agent saw it fail, and what was deliberately left untested.
+- **Left for later**: what the run chose not to do, one line each. That covers a flow it could not reach, a test it could not write, a small review finding outside the lines it changed, and a browser check worth automating. Ask for any of them with a follow-up request.
+- **Details**, collapsed: everything else, such as where the evidence files are. When a review kept asking to rewrite the same lines, both versions are here for you to choose. It lists each new test with the bug it catches and how the agent saw it fail, and what was deliberately left untested.
 
 ## A one-minute review
 

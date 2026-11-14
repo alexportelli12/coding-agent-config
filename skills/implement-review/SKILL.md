@@ -49,27 +49,34 @@ fix or by establishing that it does not apply. Do not blindly accept subjective
 or out-of-scope findings. Fix a finding about tests with `test-design`, and see
 each new or rewritten test fail as it says.
 
-`critical`, `high`, and `medium` findings block and must be resolved. A `low`
-finding inside the task's scope with a bounded fix is fixed in the same
-remediation batch, because deferred lows were the strongest source of rework;
-it needs no review pass of its own. A `low` that is out of scope or a matter of
-taste is left alone and listed in the pull request. Keep a concise finding
-ledger in session context only: each finding's severity and disposition, and the
-remediation for each blocker.
+Fix what the reviewer's rubric proves, and no more:
 
-If discovery has no applicable blockers, fix any in-scope lows, rerun the
-verify command, and the gate is complete. Otherwise, batch all blocker and
-in-scope low fixes (delegate only when specialist expertise helps, never to the
-reviewer), rerun the verify command, refresh rendered evidence when UI is
+- A verified `blocker` or `major` is fixed in this run. One without its proof
+  (an input, a call path or a failing test) counts as `minor`.
+- A `minor` or `nit` is fixed only when it sits on lines this run already
+  changed.
+- Everything else goes under **Left for later** in the pull request, one line
+  each.
+- **Loop breaker:** when review asks to rewrite lines a review fix already
+  rewrote, stop fixing them. Put both findings and both diffs in the pull
+  request for the person to decide.
+
+Keep a concise finding ledger in session context only: each finding's
+severity, proof and disposition, and the remediation for each blocker or major.
+
+If discovery has no verified blocker or major, make any fixes on changed
+lines, rerun the verify command, and the gate is complete. Otherwise, batch the
+fixes (delegate only when specialist expertise helps, never to the reviewer),
+rerun the verify command, refresh rendered evidence when UI is
 affected, and invoke the same reviewer once in `confirmation` mode with the
 original requirements, the ledger, a concise remediation summary, the current
 diff, verification status, and rendered evidence.
 
-Confirmation checks that each blocker is resolved and that the fixes caused no
-material harm; it is not another discovery. A confirmation finding blocks only
-when it is an unresolved original blocker, a material regression caused or
-exposed by remediation, a correctness or safety issue, or a genuine failure of
-the task requirements. A qualifying blocker at confirmation stops the run:
+Confirmation checks that each fixed blocker and major is resolved and that the
+fixes caused no material harm; it is not another discovery. A confirmation
+finding blocks only when it is an unresolved original blocker or major, a
+material regression caused or exposed by remediation, a correctness or safety
+issue, or a genuine failure of the task requirements. A qualifying blocker at confirmation stops the run:
 report it to the user with the finding ledger and verification evidence, and do
 not deliver. There are at most two reviewer passes: discovery and
 confirmation.

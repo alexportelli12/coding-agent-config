@@ -50,4 +50,4 @@ The guard also backs up the everyday shell rules. A command that would fail or m
 - A foreground `until` or `while` loop around `sleep` is refused only on Claude Code, which can run the loop in the background or stream with Monitor.
 - Reading a worktree file with `cat`, `head`, `tail` or `sed -n` is refused on Claude Code and OpenCode, which have a read tool. Codex has none, so it keeps using the shell.
 
-A second hook, the [loop breaker](glossary.md#loop-breaker), tells the agent to re-diagnose when the same shell command fails a third time.
+A second hook, `post-tool.mjs`, runs after each tool call. Its [loop breaker](glossary.md#loop-breaker) tells the agent to re-diagnose when the same shell command fails a third time. The first time a session edits a test file, it tells the agent to load `test-design`, because runs often skipped it ([decision 0025](decisions/0025-test-design-loads-on-first-test-edit.md)).

@@ -1101,7 +1101,7 @@ test("Codex's hooks.json gets the guard and loop breaker beside hooks it does no
   const { hooks } = JSON.parse(await readFile(hooksFile, "utf8"));
   assert.deepEqual(hooks.SessionStart, herdr.SessionStart);
   assert.deepEqual(hooks.PreToolUse, [{ matcher: "Bash", hooks: [{ type: "command", command: `node ${path.join(checkout, "scripts/hooks/guard.mjs")} --host codex` }] }]);
-  assert.match(hooks.PostToolUse[0].hooks[0].command, /loop-breaker\.mjs$/);
+  assert.match(hooks.PostToolUse[0].hooks[0].command, /post-tool\.mjs$/);
   assert.equal((await install(options)).codexHooksChanged, false);
   await install({ ...options, check: true });
 

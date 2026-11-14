@@ -71,15 +71,18 @@ It screenshots `<phase>-<route-slug>-<width>.png` at each width in
 reports as JSON, per viewport: horizontal overflow (`scrollWidth` against
 `clientWidth`, with the elements reaching past the edge), interactive elements
 smaller than 44×44 CSS px, a visible dev-error overlay, and console errors.
-`--wait-for <selector>` supplies the readiness signal when load is not enough;
+At the first viewport it also runs axe's ARIA and label rules (`axe`): a
+reference to a missing id, a control with no accessible name, a field with no
+or two labels. Each violation is a defect to report. `--wait-for <selector>` supplies the readiness signal when load is not enough;
 `node scripts/sweep.mjs --help` lists the rest. It finds Playwright through the
 pinned MCP's npx cache or the target repository, and says how to provide it
 when neither exists. Its findings need judgement: an overflow or a
 `below-24` target is a defect to report with the evidence path, `below-44` is
 advisory, and inline links in a sentence are exempt (WCAG 2.5.8).
 
-The helper covers viewports, overflow, touch targets and console errors for one
-URL. The checks below still apply for everything it cannot see.
+The helper covers viewports, overflow, touch targets, ARIA and label references
+and console errors for one URL; sweep every affected route, including each
+state the change adds. The checks below still apply for everything it cannot see.
 
 ## Checks
 
@@ -162,10 +165,10 @@ viewports you expect to check afterwards, from the unchanged code, using the
 Each finding uses the `ui-review.md` format (Observation → Impact → Principle →
 Smallest fix) plus:
 
-- **Severity:** `critical` (a primary task is blocked, data is at risk, or the
-  flow is inaccessible), `high` (a common task is seriously impaired at a
-  common viewport), `medium` (a noticeable defect with a workaround), or `low`
-  (polish).
+- **Severity:** `blocker` (a primary task is blocked, data is at risk, or the
+  flow is inaccessible), `major` (a common task is seriously impaired at a
+  common viewport, or an axe violation), `minor` (a noticeable defect with a
+  workaround), or `nit` (polish).
 - **Where:** route, section and viewport.
 - **Reproduce:** the shortest steps.
 - **Evidence:** the artifact path.

@@ -28,6 +28,7 @@ const baseConfig = JSON.stringify({ guard: { protectedBranches: ["release"], den
 await writeFile(configFile, baseConfig);
 const { default: opencodePlugin } = await import("../../opencode/plugins/mexxi-guard.js");
 const { exitCode } = await import("./loop-breaker.mjs");
+const { isTestFile, patchPaths } = await import("./test-design-nudge.mjs");
 const { resolveConfig } = await import("../lib/config.mjs");
 const { claudeHooks, codexHooks, mergeOwnedHooks } = await import("../lib/host-hooks.mjs");
 
@@ -66,7 +67,7 @@ const codexInput = (command, cwd) => ({
 
 function runHook(script, input, args = []) {
   const result = spawnSync(process.execPath, [path.join(hooks, script), ...args], { input: JSON.stringify(input), encoding: "utf8", env: process.env });
-  return { code: result.status, stderr: result.stderr };
+  return { code: result.status, stderr: result.stderr, stdout: result.stdout };
 }
 
 // The guard's verdict on every host: null when allowed, else the reason each
@@ -792,7 +793,7 @@ test("a red line wins over a help refusal in the same line", async () => {
   await assertBlocked("npm test | tail; git push --force origin feature", /force/);
 });
 
-test("the installed hook command tells the guard its host, and an install replaces the old mexxi-owned entry rather than adding a second", async () => {
+test("the installed hooks tell the guard its host and run the post-tool entry, and an install replaces the old mexxi-owned entries rather than adding seconds", async () => {
   const checkout = path.resolve(hooks, "../..");
   const config = { paths: { checkout } };
   const claude = claudeHooks(config).PreToolUse[0].hooks[0].command;
@@ -805,17 +806,102 @@ test("the installed hook command tells the guard its host, and an install replac
   assert.equal(run(claude, claudeInput(loop, clone)).status, 2);
   assert.equal(run(codex, codexInput(loop, clone)).status, 0);
 
-  // An install from before --host recorded the bare command as its own.
-  const old = { PreToolUse: [{ matcher: "Bash|Monitor", hooks: [{ type: "command", command: `node ${path.join(checkout, "scripts/hooks/guard.mjs")}` }] }] };
+  // Edits and shell results both reach the one post-tool entry.
+  const postTool = `node ${path.join(checkout, "scripts/hooks/post-tool.mjs")}`;
+  assert.deepEqual(claudeHooks(config).PostToolUse, [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit", hooks: [{ type: "command", command: postTool }] }]);
+  assert.deepEqual(claudeHooks(config).PostToolUseFailure, [{ matcher: "Bash", hooks: [{ type: "command", command: postTool }] }]);
+  assert.deepEqual(codexHooks(config).PostToolUse, [{ matcher: "Bash|apply_patch", hooks: [{ type: "command", command: postTool }] }]);
+
+  // An older install recorded the bare guard command and the loop breaker as its own.
+  const entry = (script) => [{ type: "command", command: `node ${path.join(checkout, "scripts/hooks", script)}` }];
+  const old = {
+    PreToolUse: [{ matcher: "Bash|Monitor", hooks: entry("guard.mjs") }],
+    PostToolUse: [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit", hooks: entry("loop-breaker.mjs") }],
+    PostToolUseFailure: [{ matcher: "Bash", hooks: entry("loop-breaker.mjs") }],
+  };
   const user = { matcher: "Bash", hooks: [{ type: "command", command: "my-hook" }] };
   const desired = claudeHooks(config);
-  const merged = mergeOwnedHooks({ current: { PreToolUse: [user, ...old.PreToolUse] }, previous: old, desired, file: "settings.json" });
-  assert.deepEqual(merged.hooks.PreToolUse, [user, ...desired.PreToolUse]);
-  assert.deepEqual(merged.owned.PreToolUse, desired.PreToolUse);
+  const merged = mergeOwnedHooks({ current: { ...old, PreToolUse: [user, ...old.PreToolUse] }, previous: old, desired, file: "settings.json" });
+  assert.deepEqual(merged.hooks, { ...desired, PreToolUse: [user, ...desired.PreToolUse] });
+  assert.deepEqual(merged.owned, desired);
   assert.ok(merged.drift.some((line) => /PreToolUse hook Bash\|Monitor -> node \S+guard\.mjs was added by mexxi and is no longer wanted/.test(line)), merged.drift.join("\n"));
+  assert.ok(merged.drift.some((line) => /PostToolUse hook \S+ -> node \S+loop-breaker\.mjs was added by mexxi and is no longer wanted/.test(line)), merged.drift.join("\n"));
   // The next install finds nothing to change.
   const again = mergeOwnedHooks({ current: merged.hooks, previous: merged.owned, desired, file: "settings.json" });
   assert.deepEqual([again.hooks, again.drift], [merged.hooks, []]);
+});
+
+// The test-design nudge (decision 0025), through each host's real entry.
+const claudeEdit = (session, tool, toolInput) => ({
+  session_id: session, transcript_path: "/tmp/t.jsonl", cwd: clone, permission_mode: "default", hook_event_name: "PostToolUse",
+  tool_name: tool, tool_input: toolInput, tool_response: { filePath: toolInput.file_path ?? toolInput.notebook_path, type: "update" }, tool_use_id: "toolu_3",
+});
+const codexPatch = (session, patch, response = '{"exit_code":0,"output":"Success. Updated the following files"}') => ({
+  session_id: session, transcript_path: null, cwd: clone, hook_event_name: "PostToolUse", model: "gpt-5.6-luna", permission_mode: "default",
+  tool_name: "apply_patch", tool_input: { command: patch }, tool_response: response, tool_use_id: "call_2", turn_id: "turn_1",
+});
+// The additionalContext a post-tool run hands the agent, or null; the edit is never blocked.
+function nudged(input) {
+  const result = runHook("post-tool.mjs", input);
+  assert.equal(result.code, 0, `an edit is never blocked: ${result.stderr}`);
+  return result.stdout ? JSON.parse(result.stdout).hookSpecificOutput : null;
+}
+
+test("the first test-file edit in a session tells the agent to load test-design, once, and a non-test edit never does", async () => {
+  assert.equal(nudged(claudeEdit("n1", "Edit", { file_path: `${clone}/src/app.ts`, old_string: "a", new_string: "b" })), null);
+  assert.equal(nudged(claudeEdit("n1", "Write", { file_path: `${clone}/README.md`, content: "x" })), null);
+  const first = nudged(claudeEdit("n1", "Edit", { file_path: `${clone}/src/app.test.ts`, old_string: "a", new_string: "b" }));
+  assert.deepEqual(first, {
+    hookEventName: "PostToolUse",
+    additionalContext: `You just edited a test file (${clone}/src/app.test.ts). Load the test-design skill now, before writing or changing more tests: it decides which tests the change needs and how to see each one fail.`,
+  });
+  // Once per session: later test edits, of any file, add nothing.
+  assert.equal(nudged(claudeEdit("n1", "MultiEdit", { file_path: `${clone}/tests/other_test.py`, edits: [] })), null);
+  assert.equal(nudged(claudeEdit("n1", "Edit", { file_path: `${clone}/src/app.test.ts`, old_string: "b", new_string: "c" })), null);
+  // Another session gets its own nudge; a shell command never triggers one.
+  assert.equal(nudged({ ...success("n2", "Bash", { command: "cat src/app.test.ts" }) }), null);
+  assert.match(nudged(claudeEdit("n2", "NotebookEdit", { notebook_path: `${clone}/tests/explore.ipynb`, new_source: "x" })).additionalContext, /tests\/explore\.ipynb\)\. Load the test-design skill now/);
+});
+
+test("Codex's apply_patch is read for the files it touches, and a failed patch does not count", async () => {
+  assert.deepEqual(patchPaths("*** Begin Patch\n*** Update File: src/app.ts\n@@\n-a\n+b\n*** Add File: src/__tests__/app.ts\n+x\n*** Delete File: old_test.go\n*** Update File: lib/a.py\n*** Move to: tests/a.py\n*** End Patch"),
+    ["src/app.ts", "src/__tests__/app.ts", "old_test.go", "lib/a.py", "tests/a.py"]);
+  // A line inside a hunk that reads like a header is still hunk text when it does not start the line.
+  assert.deepEqual(patchPaths("*** Begin Patch\n*** Update File: src/app.ts\n@@\n+ // *** Add File: x.test.ts\n*** End Patch"), ["src/app.ts"]);
+  const patch = "*** Begin Patch\n*** Update File: src/app.ts\n@@\n-a\n+b\n*** Add File: src/app.spec.ts\n+it('x')\n*** End Patch";
+  assert.equal(nudged(codexPatch("c-n1", patch, '{"exit_code":1,"output":"patch did not apply"}')), null);
+  assert.equal(nudged(codexPatch("c-n1", "*** Begin Patch\n*** Update File: src/app.ts\n@@\n-a\n+b\n*** End Patch")), null);
+  assert.match(nudged(codexPatch("c-n1", patch)).additionalContext, /^You just edited a test file \(src\/app\.spec\.ts\)\. Load the test-design skill now/);
+  assert.equal(nudged(codexPatch("c-n1", patch)), null);
+});
+
+test("OpenCode's plugin appends the nudge to the first test-file edit's output, once", async () => {
+  const { "tool.execute.after": after } = await opencodePlugin.server({ directory: clone });
+  const edit = async (tool, args) => {
+    const output = { title: tool, output: "Edit applied successfully.", metadata: {} };
+    await after({ tool, sessionID: "ses_nudge", callID: "c", args }, output);
+    return output.output;
+  };
+  assert.equal(await edit("edit", { filePath: `${clone}/src/app.ts`, oldString: "a", newString: "b" }), "Edit applied successfully.");
+  assert.equal(await edit("write", { filePath: `${clone}/e2e/login.ts`, content: "x" }),
+    `Edit applied successfully.\n\nmexxi: You just edited a test file (${clone}/e2e/login.ts). Load the test-design skill now, before writing or changing more tests: it decides which tests the change needs and how to see each one fail.`);
+  assert.equal(await edit("patch", { patchText: "*** Begin Patch\n*** Add File: test_app.py\n+x\n*** End Patch" }), "Edit applied successfully.");
+  // Its patch tool's text is read like Codex's.
+  const { "tool.execute.after": fresh } = await opencodePlugin.server({ directory: clone });
+  const output = { title: "patch", output: "ok", metadata: {} };
+  await fresh({ tool: "patch", sessionID: "ses_nudge_2", callID: "c", args: { patchText: "*** Begin Patch\n*** Add File: test_app.py\n+x\n*** End Patch" } }, output);
+  assert.match(output.output, /\(test_app\.py\)\. Load the test-design skill now/);
+});
+
+test("test files are told apart by path, as the one exported list of patterns says", () => {
+  for (const file of [
+    "src/app.test.ts", "src/app.spec.tsx", "scripts/hooks/hooks.test.mjs", "web/app-test.js", "test_app.py", "pkg/app_test.py",
+    "internal/server_test.go", "spec/models/user_spec.rb", "src/test/java/AppTest.java", "src/__tests__/app.js", "tests/fixtures/data.json",
+    "test/helper.rb", "e2e/login.ts", "C:\\repo\\tests\\a.py",
+  ]) assert.ok(isTestFile(file), file);
+  for (const file of ["src/app.ts", "README.md", "src/testing.ts", "src/latest/app.ts", "src/contest.py", "docs/test-design.md", "src/protest_app.py", "attestation.go"]) {
+    assert.ok(!isTestFile(file), file);
+  }
 });
 
 test("the guard fails closed on input it cannot read, and ignores tools that run no shell", async () => {
@@ -904,42 +990,42 @@ const success = (session, tool, input) => ({
 
 test("the loop breaker stops the third identical failure in a Claude Code session", async () => {
   const command = "npm test -- --run src/app.spec.ts";
-  assert.equal(runHook("loop-breaker.mjs", failure("s1", command)).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", failure("s1", `${command}  `)).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s1", command)).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s1", `${command}  `)).code, 0);
   // Another session's failures are its own.
-  assert.equal(runHook("loop-breaker.mjs", failure("s2", command)).code, 0);
-  const third = runHook("loop-breaker.mjs", failure("s1", command));
+  assert.equal(runHook("post-tool.mjs", failure("s2", command)).code, 0);
+  const third = runHook("post-tool.mjs", failure("s1", command));
   assert.equal(third.code, 2);
   assert.match(third.stderr, /failed 3 times in this session[\s\S]*Stop retrying it\. Re-diagnose/);
-  assert.equal(runHook("loop-breaker.mjs", failure("s1", command)).code, 2);
+  assert.equal(runHook("post-tool.mjs", failure("s1", command)).code, 2);
   // An interrupted run or a shell that never started is not a failed attempt.
-  assert.equal(runHook("loop-breaker.mjs", { ...failure("s2", command), is_interrupt: true }).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", failure("s2", command, "spawn /bin/zsh ENOENT")).code, 0);
+  assert.equal(runHook("post-tool.mjs", { ...failure("s2", command), is_interrupt: true }).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s2", command, "spawn /bin/zsh ENOENT")).code, 0);
 });
 
 test("a success whose output reads like a failure is a success", async () => {
   const command = "npm test";
-  runHook("loop-breaker.mjs", failure("s5", command));
-  runHook("loop-breaker.mjs", failure("s5", command));
+  runHook("post-tool.mjs", failure("s5", command));
+  runHook("post-tool.mjs", failure("s5", command));
   const printed = success("s5", "Bash", { command });
   printed.tool_response.stdout = "Exit code 1\nexpected: Exit code 1";
-  assert.equal(runHook("loop-breaker.mjs", printed).code, 0);
+  assert.equal(runHook("post-tool.mjs", printed).code, 0);
   // The success cleared the count, so two more failures stay under the limit.
-  assert.equal(runHook("loop-breaker.mjs", failure("s5", command)).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", failure("s5", command)).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s5", command)).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s5", command)).code, 0);
 });
 
 test("an edit or a success between failures is progress, not a retry", async () => {
   const command = "npm run verify";
-  runHook("loop-breaker.mjs", failure("s3", command));
-  runHook("loop-breaker.mjs", failure("s3", command));
-  assert.equal(runHook("loop-breaker.mjs", success("s3", "Edit", { file_path: "a.ts", old_string: "a", new_string: "b" })).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", failure("s3", command)).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", failure("s3", command)).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", success("s3", "Bash", { command })).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", failure("s3", command)).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", failure("s3", command)).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", failure("s3", command)).code, 2);
+  runHook("post-tool.mjs", failure("s3", command));
+  runHook("post-tool.mjs", failure("s3", command));
+  assert.equal(runHook("post-tool.mjs", success("s3", "Edit", { file_path: "a.ts", old_string: "a", new_string: "b" })).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s3", command)).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s3", command)).code, 0);
+  assert.equal(runHook("post-tool.mjs", success("s3", "Bash", { command })).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s3", command)).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s3", command)).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s3", command)).code, 2);
 });
 
 test("Codex's PostToolUse carries the exit status in tool_response", async () => {
@@ -960,15 +1046,15 @@ test("Codex's PostToolUse carries the exit status in tool_response", async () =>
   assert.equal(exitCode('{"exit_code":0,"output":"Exit code 1"}'), 0);
   const command = "cargo build";
   const failed = '{"exit_code":101,"output":"error[E0425]"}';
-  assert.equal(runHook("loop-breaker.mjs", codex("c1", command, failed)).code, 0);
+  assert.equal(runHook("post-tool.mjs", codex("c1", command, failed)).code, 0);
   // An unreadable result counts as nothing, not as a failure or a success.
-  assert.equal(runHook("loop-breaker.mjs", codex("c1", command, "unknown shape")).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", codex("c1", command, { exit_code: 101 })).code, 0);
-  const third = runHook("loop-breaker.mjs", codex("c1", command, failed));
+  assert.equal(runHook("post-tool.mjs", codex("c1", command, "unknown shape")).code, 0);
+  assert.equal(runHook("post-tool.mjs", codex("c1", command, { exit_code: 101 })).code, 0);
+  const third = runHook("post-tool.mjs", codex("c1", command, failed));
   assert.equal(third.code, 2);
   assert.match(third.stderr, /failed 3 times/);
-  assert.equal(runHook("loop-breaker.mjs", { ...codex("c1", "x", null), tool_name: "apply_patch", tool_input: { command: "*** Begin Patch" } }).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", codex("c1", command, failed)).code, 0);
+  assert.equal(runHook("post-tool.mjs", { ...codex("c1", "x", null), tool_name: "apply_patch", tool_input: { command: "*** Begin Patch" } }).code, 0);
+  assert.equal(runHook("post-tool.mjs", codex("c1", command, failed)).code, 0);
 });
 
 test("OpenCode's plugin runs the loop breaker on the bash tool's exit status", async () => {
@@ -988,15 +1074,15 @@ test("OpenCode's plugin runs the loop breaker on the bash tool's exit status", a
 test("the limit comes from guard.repeatedFailureLimit, and state stays under the home's mexxi state", async (t) => {
   await writeFile(configFile, JSON.stringify({ guard: { repeatedFailureLimit: 2 } }));
   t.after(() => writeFile(configFile, baseConfig));
-  assert.equal(runHook("loop-breaker.mjs", failure("s4", "make")).code, 0);
-  assert.equal(runHook("loop-breaker.mjs", failure("s4", "make")).code, 2);
+  assert.equal(runHook("post-tool.mjs", failure("s4", "make")).code, 0);
+  assert.equal(runHook("post-tool.mjs", failure("s4", "make")).code, 2);
   const directory = path.join(home, ".local/share/mexxi/state/loop-breaker");
   const [state] = readdirSync(directory);
   assert.match(await readFile(path.join(directory, state), "utf8"), /"counts"/);
   // A corrupt state file never fails the tool call.
   await mkdir(directory, { recursive: true });
   for (const name of readdirSync(directory)) await writeFile(path.join(directory, name), "{");
-  const broken = runHook("loop-breaker.mjs", failure("s4", "make"));
+  const broken = runHook("post-tool.mjs", failure("s4", "make"));
   assert.equal(broken.code, 0);
   await rm(directory, { recursive: true });
 });

@@ -93,6 +93,8 @@ its architecture, and follow them:
 - [0021 Hooks refuse with the fix; they never rewrite](docs/decisions/0021-hooks-refuse-with-the-fix.md)
 - [0022 Retire Jev triage and cross-family review](docs/decisions/0022-retire-jev-and-cross-family-review.md)
 - [0023 Runs decide reversible choices and record them](docs/decisions/0023-decide-and-record.md)
+- [0024 Review findings carry a proven severity, and fixes stay bounded](docs/decisions/0024-review-severity-and-bounded-fixes.md)
+- [0025 test-design loads the first time a session edits a test](docs/decisions/0025-test-design-loads-on-first-test-edit.md)
 
 To change a decision, add a new record that supersedes it and change only the
 old record's status; never rewrite its reasoning.

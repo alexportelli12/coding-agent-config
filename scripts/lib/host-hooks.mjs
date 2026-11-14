@@ -1,6 +1,7 @@
 // The hook entries mexxi owns in Claude Code's settings.json and Codex's
-// hooks.json: the shared guard before every shell command and the loop
-// breaker after it. Both files belong to the user (and to other tools, such
+// hooks.json: the shared guard before every shell command, and after shell
+// commands and edits the post-tool entry (the loop breaker and the
+// test-design nudge). Both files belong to the user (and to other tools, such
 // as herdr), so entries are merged by ownership, the way claude-settings.mjs
 // merges deny rules: a state file records the exact groups mexxi added, a
 // later install removes only those, and `install --check` reports one that
@@ -18,7 +19,7 @@ function command(checkout, script, args = []) {
 
 // Claude Code: PreToolUse covers Bash and Monitor (a monitor's script is a
 // shell command). A failed command raises PostToolUseFailure, a successful
-// one or an edit PostToolUse, so the loop breaker listens to both. The guard
+// one or an edit PostToolUse, so the post-tool entry listens to both. The guard
 // is told its host, since some of its help refusals depend on the host's
 // tools. A changed command string is a new group, so an install replaces the
 // old mexxi-owned one rather than keeping both.
@@ -26,8 +27,8 @@ export function claudeHooks(config) {
   const { checkout } = config.paths;
   return {
     PreToolUse: [{ matcher: "Bash|Monitor", hooks: [command(checkout, "guard.mjs", ["--host", "claude"])] }],
-    PostToolUse: [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit", hooks: [command(checkout, "loop-breaker.mjs")] }],
-    PostToolUseFailure: [{ matcher: "Bash", hooks: [command(checkout, "loop-breaker.mjs")] }],
+    PostToolUse: [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit", hooks: [command(checkout, "post-tool.mjs")] }],
+    PostToolUseFailure: [{ matcher: "Bash", hooks: [command(checkout, "post-tool.mjs")] }],
   };
 }
 
@@ -37,7 +38,7 @@ export function codexHooks(config) {
   const { checkout } = config.paths;
   return {
     PreToolUse: [{ matcher: "Bash", hooks: [command(checkout, "guard.mjs", ["--host", "codex"])] }],
-    PostToolUse: [{ matcher: "Bash|apply_patch", hooks: [command(checkout, "loop-breaker.mjs")] }],
+    PostToolUse: [{ matcher: "Bash|apply_patch", hooks: [command(checkout, "post-tool.mjs")] }],
   };
 }
 

@@ -84,14 +84,13 @@ below at its top. Otherwise use this shape:
 ## Decisions and assumptions
 - <Something decided without being asked: the reading taken and the cheapest way to reverse it.>
 
-## Gaps
-- <Known limits and follow-ups.>
+## Left for later
+- <A known limit, a review finding not fixed in this run, or a check worth automating: one line each.>
 
 <details><summary>Details</summary>
 
 <Supporting depth: other viewports, flake explanations, data tables, and the
-review's out-of-scope or taste-only `low` findings, one line each with why they
-were left.>
+diffs behind any review disagreement the run stopped fixing.>
 
 </details>
 ```
@@ -122,9 +121,10 @@ deploy (a Firebase Hosting channel, a Vercel preview), put its URL in the check
 so the change can be validated from a phone; never invent one. When there is
 nothing to do, write "Nothing; safe to merge as it is."
 
-**Evidence.** One line of the gates that actually ran, then, only if it changes
-the decision, the most useful proof in plain words, such as "Checkout tests
-cover discounts that would make the total negative." Say what did not run. Keep automated
+**Evidence.** Claim only checks that ran, each with its result: one line of
+the gates that actually ran, then, only if it changes the decision, the most
+useful proof in plain words, such as "Checkout tests cover discounts that
+would make the total negative." Say what did not run. Keep automated
 tests, manual observations and unrun checks distinct. Do not unpack `verify`,
 paste logs, count routine findings resolved, invent fail-then-pass proof, infer
 a passing test from a changed spec, treat an unavailable capture or an
@@ -132,7 +132,7 @@ infrastructure failure as proof, or broaden a local or sampled result into a
 guarantee. The test report `test-design` produces (each new test's break and
 how it was seen failing, and what was deliberately left untested) goes in
 Details, one line per test; a break no available test level could reach goes
-in Gaps. A coverage percentage is never proof.
+in **Left for later**. A coverage percentage is never proof.
 
 **Decisions and assumptions.** List each reversible choice the run made
 without asking: the open question, the reading taken, and how to reverse it.

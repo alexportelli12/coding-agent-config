@@ -94,15 +94,16 @@ and on an upgrade alike:
     then keeps session transcripts on disk for 90 days instead of deleting
     them after its default 30, so a retro can read them. Transcripts hold
     everything a session saw, so this is longer retention of that data;
-  - the guard and loop-breaker hooks, as `PreToolUse`, `PostToolUse` and
-    `PostToolUseFailure` groups.
+  - the guard hook as a `PreToolUse` group, and the post-tool hook (the loop
+    breaker, and a one-time reminder to load `test-design` when a session first
+    edits a test) as `PostToolUse` and `PostToolUseFailure` groups.
 
   A key the user set to a different value is a conflict: the installer stops
   and changes nothing.
 - **Claude Code mods** (`mods`): `claude plugin` adds the `mexxi` marketplace
   and installs each mod, which writes `extraKnownMarketplaces` and
   `enabledPlugins` into the same `settings.json`.
-- **Codex's `~/.codex/hooks.json`:** the guard and loop-breaker groups, merged
+- **Codex's `~/.codex/hooks.json`:** the guard and post-tool groups, merged
   in beside the user's own hooks.
 - A `post-merge` Git hook in the clone, so every `git pull` there reruns the
   installer.
@@ -188,7 +189,7 @@ commands it prints) and rerun until it is green. Do not report success on any
 other evidence.
 
 Codex needs one more step the installer cannot do: start `codex` once and
-trust the mexxi guard and loop breaker hooks in `/hooks`. Codex skips untrusted
+trust the mexxi guard and post-tool hooks in `/hooks`. Codex skips untrusted
 hooks. Say so whenever Codex is a chosen host.
 
 ## Upgrade and repair
