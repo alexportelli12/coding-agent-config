@@ -115,6 +115,7 @@
           }
         },
         "warmCaches": { "description": "Copy build, type-check, lint and test caches (.next/cache, *.tsbuildinfo, .eslintcache, node_modules/.vite/vitest) that the control checkout has into each new worktree after setup, up to 1 GB each, so its first verify run is not a cold one. Each tool checks its cache against the sources, so a stale copy only costs a rebuild.", "type": "boolean", "default": true },
+        "pruneAfterDays": { "description": "Days after which ibni prepare's cleanup removes a retained workspace whose pull request closed without merging, or that never recorded one: such a worktree takes disk space and nobody returns to it. A workspace with uncommitted work, one in use, or one whose state ibni cannot read is never removed, and a local branch with commits on no remote is kept.", "type": "integer", "minimum": 1, "maximum": 3650, "default": 14 },
         "verifySlots": { "description": "How many setup and verify runs ibni lets run at once on this machine, across every repository; the rest wait in a queue and report the wait as queuedMs. Two suits a machine with 8 cores: raise it if runs rarely wait, and lower it if checks start to time out under load.", "type": "integer", "minimum": 1, "maximum": 64, "default": 2 },
         "scope": {
           "description": "The systemd user scope ibni runs setup and verify in, where systemd-run --user works; elsewhere they run as plain child processes.",

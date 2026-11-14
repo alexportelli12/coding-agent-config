@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { loadConfig } from "../lib/config.mjs";
 import { COMMANDS } from "./ibni.mjs";
 import { MEDIA_EXTENSIONS } from "./lib/media.mjs";
+import { parseLsofListeners, parseSsListeners } from "./lib/ports.mjs";
 
 const cli = fileURLToPath(new URL("./ibni.mjs", import.meta.url));
 const VERIFY_SCRIPT = "node -e \"process.exit(require('fs').existsSync('FAIL') ? 1 : 0)\"";
@@ -2880,4 +2881,213 @@ test("a workspace from before ibni ran setup and verify still adopts and publish
   assert.match(refused.json.nextAction, new RegExp(`^Run ibni verify --session ${sessionId} in the background`));
   await recordEvidence(fixture, { json: { worktreePath, sessionId } });
   assert.equal((await lifecycle(fixture, worktreePath, "publish", { session: sessionId })).json.published, true);
+});
+
+async function writeMetadataFile(worktreePath, change) {
+  const gitDirectory = (await git(worktreePath, "rev-parse", "--absolute-git-dir")).stdout.trim();
+  const file = path.join(gitDirectory, "implementation-workspace.json");
+  const metadata = JSON.parse(await readFile(file, "utf8"));
+  await writeFile(file, JSON.stringify(change(metadata), null, 2));
+}
+
+// Every time in the metadata moved back by days, as if nothing happened since.
+const aged = (days) => (metadata) => {
+  const back = (iso) => (iso ? new Date(Date.parse(iso) - days * 86_400_000).toISOString() : iso);
+  return {
+    ...metadata, createdAt: back(metadata.createdAt), updatedAt: back(metadata.updatedAt),
+    steps: (metadata.steps ?? []).map((step) => ({ ...step, startedAt: back(step.startedAt), endedAt: back(step.endedAt) })),
+    records: (metadata.records ?? []).map((record) => ({ ...record, at: back(record.at) })),
+  };
+};
+
+const runLog = async (fixture) => (await readFile(path.join(fixture.worktrees, ".ibni", "runs.jsonl"), "utf8").catch(() => ""))
+  .split("\n").filter(Boolean).map((line) => JSON.parse(line));
+
+test("the run log records a finished CI wait and a removed workspace under the runId prepare assigned and adopt kept", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "logged" });
+  const { sessionId, worktreePath, branch } = prepared.json;
+  const { runId, createdAt } = JSON.parse(await metadataFile(worktreePath));
+  assert.match(runId, /^[0-9a-f]{24}$/);
+  await publishAndMark(fixture, prepared, "feature\n", 11);
+  const headSha = (await git(worktreePath, "rev-parse", "HEAD")).stdout.trim();
+  await setGhState(fixture.gh, 11, "OPEN");
+  await setGhHead(fixture.gh, 11, branch, headSha);
+  await lifecycle(fixture, fixture.control, "record", { session: sessionId, review: "2", accepted: "1" });
+
+  // Catches: a timed-out wait logged as if the run ended.
+  await setGhChecks(fixture.gh, 11, [ghCheck("slow", "pending")]);
+  await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId, "timeout-minutes": "0.005" }, [1]);
+  assert.deepEqual(await runLog(fixture), []);
+  await setGhChecks(fixture.gh, 11, [ghCheck("verify", "fail")]);
+  await lifecycleJson(fixture, fixture.control, "ci-wait", { session: sessionId }, [1]);
+  await setGhChecks(fixture.gh, 11, [ghCheck("verify", "pass")]);
+  await lifecycle(fixture, fixture.control, "ci-wait", { session: sessionId });
+
+  // Catches: adopt minting a new runId, so a follow-up looks like another run.
+  const adopted = await lifecycle(fixture, fixture.control, "adopt", { pr: "https://example.test/pull/11" });
+  assert.equal(JSON.parse(await metadataFile(worktreePath)).runId, runId);
+
+  await pretendMerged(fixture, prepared);
+  await setGhState(fixture.gh, 11, "MERGED");
+  await rm(path.join(fixture.gh, "11.head"));
+  await setGhMergeCommit(fixture.gh, 11, (await git(fixture.control, "rev-parse", "HEAD")).stdout.trim());
+  const cleaned = await lifecycle(fixture, fixture.control, "cleanup", { "dry-run": "false" });
+  assert.equal(cleaned.json.removedCount, 1);
+
+  const lines = await runLog(fixture);
+  assert.deepEqual(lines.map(({ event, outcome, ci }) => [event, outcome, ci.state, ci.rounds]),
+    [["ci", "ci-failed", "failed", 1], ["ci", "green", "green", 2], ["removed", "merged", "green", 2]]);
+  const [, green, removed] = lines;
+  assert.deepEqual(Object.keys(removed), ["version", "runId", "recordedAt", "event", "repository", "branch", "worktreePath", "prUrl", "startedAt", "outcome", "steps", "verify", "review", "qa", "ci"]);
+  assert.deepEqual([green.version, green.runId, green.repository, green.branch, green.worktreePath, green.prUrl],
+    [1, runId, "control", branch, worktreePath, "https://example.test/pull/11"]);
+  assert.equal(green.startedAt, createdAt);
+  assert.deepEqual([removed.runId, removed.verify, removed.review, removed.qa], [runId, { attempts: 1, failed: 0 }, { passes: 1, findings: 2, accepted: 1 }, { passes: 0, findings: 0 }]);
+  assert.ok(removed.steps.prepare >= 0 && removed.steps["ci-wait"] >= 0 && removed.steps.adopt >= 0);
+  assert.equal(adopted.json.sessionId !== sessionId, true);
+});
+
+test("a workspace from before runIds is logged under its first session id and its createdAt", async (t) => {
+  const fixture = await createFixture(t);
+  await writeFile(fixture.config, JSON.stringify({ paths: { worktreeRoot: fixture.worktrees }, workflow: { pruneAfterDays: 1 } }));
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "old run" });
+  await writeMetadataFile(prepared.json.worktreePath, (metadata) => { const { runId: _runId, ...rest } = aged(3)(metadata); return rest; });
+  const { createdAt } = JSON.parse(await metadataFile(prepared.json.worktreePath));
+  await lifecycle(fixture, fixture.control, "cleanup", { "dry-run": "false" });
+  const [line] = await runLog(fixture);
+  assert.deepEqual([line.event, line.outcome, line.runId, line.startedAt, line.prUrl, line.ci], ["removed", "abandoned", prepared.json.sessionId, createdAt, null, { rounds: 0, state: null }]);
+});
+
+test("cleanup prunes idle workspaces without a PR or with a closed one, keeping unpushed branches and everything in use", async (t) => {
+  const fixture = await createFixture(t);
+  await writeFile(fixture.config, JSON.stringify({ paths: { worktreeRoot: fixture.worktrees }, workflow: { pruneAfterDays: 2 } }));
+  const make = (slug) => lifecycle(fixture, fixture.control, "prepare", { slug });
+  const abandoned = await make("abandoned");
+  await commit(abandoned.json.worktreePath, "local.txt", "only here\n", "work on no remote");
+  const closed = await make("closed");
+  await publishAndMark(fixture, closed, "closed\n", 12);
+  await setGhState(fixture.gh, 12, "CLOSED");
+  const recent = await make("recent");
+  const dirty = await make("dirty");
+  await writeFile(path.join(dirty.json.worktreePath, "scratch.txt"), "uncommitted\n");
+  const handLocked = await make("hand locked");
+  const busy = await make("busy");
+  for (const workspace of [abandoned, closed, dirty, handLocked, busy]) await writeMetadataFile(workspace.json.worktreePath, aged(3));
+  await writeMetadataFile(recent.json.worktreePath, aged(1));
+  await git(fixture.control, "worktree", "unlock", handLocked.json.worktreePath);
+  await git(fixture.control, "worktree", "lock", "--reason", "keeping this one", handLocked.json.worktreePath);
+  // A live verify run of the busy session holds a slot.
+  const slot = path.join(fixture.worktrees, ".ibni", "slots", "slot-0");
+  await mkdir(slot, { recursive: true });
+  await writeFile(path.join(slot, "owner.json"), JSON.stringify({ sessionId: busy.json.sessionId, kind: "verify", hostname: os.hostname(), pid: process.pid }));
+
+  const next = await make("next");
+  const { removed, kept } = next.json.cleanup;
+  const byPath = (list, workspace) => list.find((row) => row.worktreePath === workspace.json.worktreePath);
+  // Catches: a pruned branch deleted while its commits are on no remote.
+  assert.deepEqual(
+    [byPath(removed, abandoned).pruned, byPath(removed, abandoned).outcome, byPath(removed, abandoned).keptBranch, byPath(removed, abandoned).branchDeleted],
+    [true, "abandoned", abandoned.json.branch, false],
+  );
+  assert.match(byPath(removed, abandoned).reason, /no recorded pull request and idle for 3 days/);
+  assert.equal((await git(fixture.control, "rev-parse", "--verify", abandoned.json.branch)).code, 0);
+  assert.deepEqual([byPath(removed, closed).outcome, byPath(removed, closed).branchDeleted], ["closed", true]);
+  assert.equal(await pathExists(`${closed.json.worktreePath}.evidence`), false);
+  // Catches: pruning what is recent, dirty, locked by a person or in use.
+  assert.match(byPath(kept, recent).reason, /pruned once idle for 2 days/);
+  assert.match(byPath(kept, dirty).reason, /uncommitted or untracked work/);
+  assert.match(byPath(kept, handLocked).reason, /locked by hand: keeping this one/);
+  assert.match(byPath(kept, busy).reason, /run of this session is in progress/);
+  assert.deepEqual((await runLog(fixture)).map(({ outcome, branch }) => [outcome, branch]).sort(),
+    [["abandoned", abandoned.json.branch], ["closed", closed.json.branch]].sort());
+});
+
+test("adopt resolves duplicate recorders, a reviewer's push and an interrupted publish, and still refuses lost work", async (t) => {
+  const fixture = await createFixture(t);
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "owner" });
+  const { worktreePath, branch } = prepared.json;
+  await publishAndMark(fixture, prepared, "feature\n", 13);
+  const prUrl = "https://example.test/pull/13";
+  const publishedSha = (await git(worktreePath, "rev-parse", "HEAD")).stdout.trim();
+  await setGhState(fixture.gh, 13, "OPEN");
+  await setGhHead(fixture.gh, 13, branch, publishedSha);
+  // A second workspace recorded the same URL on another branch.
+  const stray = await lifecycle(fixture, fixture.control, "prepare", { slug: "stray" });
+  await publishAndMark(fixture, stray, "stray\n", 13);
+
+  // A reviewer pushes a commit to the pull request's branch.
+  const reviewer = path.join(fixture.root, "reviewer");
+  await run("git", ["clone", "--quiet", "--branch", branch, fixture.remote, reviewer]);
+  await git(reviewer, "config", "user.name", "Reviewer");
+  await git(reviewer, "config", "user.email", "reviewer@example.test");
+  const reviewed = await commit(reviewer, "suggestion.txt", "suggested\n", "apply suggestion");
+  await git(reviewer, "push", "--quiet", "origin", branch);
+  await setGhHead(fixture.gh, 13, branch, reviewed);
+
+  // Catches: duplicates refused although one workspace plainly owns the PR,
+  // or a clean worktree left behind a reviewer's push.
+  const adopted = await lifecycle(fixture, fixture.control, "adopt", { pr: prUrl });
+  assert.equal(adopted.json.worktreePath, worktreePath);
+  assert.deepEqual(adopted.json.passedOver.map((entry) => entry.worktreePath), [stray.json.worktreePath]);
+  assert.deepEqual(adopted.json.fastForwarded, { from: publishedSha, to: reviewed });
+  assert.equal((await git(worktreePath, "rev-parse", "HEAD")).stdout.trim(), reviewed);
+  assert.equal(JSON.parse(await metadataFile(worktreePath)).publishedSha, reviewed);
+  assert.equal(adopted.json.verified.current, false);
+
+  // Catches: an interrupted publish from a dead session blocking adoption for good.
+  await writeMetadataFile(worktreePath, (metadata) => ({ ...metadata, pendingOperation: { type: "publication", headSha: "f".repeat(40), priorPublishedSha: reviewed, startedAt: new Date().toISOString() } }));
+  const settled = await lifecycle(fixture, fixture.control, "adopt", { pr: prUrl });
+  assert.deepEqual(settled.json.settled, { type: "publication", outcome: "not pushed" });
+  assert.equal(JSON.parse(await metadataFile(worktreePath)).pendingOperation, null);
+
+  // Kept refusals: a publish whose outcome is unknown, and diverged history.
+  await writeMetadataFile(worktreePath, (metadata) => ({ ...metadata, pendingOperation: { type: "publication", headSha: "f".repeat(40), priorPublishedSha: "e".repeat(40), startedAt: new Date().toISOString() } }));
+  const unclear = await lifecycle(fixture, fixture.control, "adopt", { pr: prUrl }, [2]);
+  assert.match(unclear.stderr, /incomplete publication operation whose outcome adopt cannot prove/);
+  await writeMetadataFile(worktreePath, (metadata) => ({ ...metadata, pendingOperation: null }));
+  await commit(worktreePath, "local.txt", "local\n", "local work");
+  const another = await commit(reviewer, "more.txt", "more\n", "another suggestion");
+  await git(reviewer, "push", "--quiet", "origin", branch);
+  await setGhHead(fixture.gh, 13, branch, another);
+  const before = await metadataFile(worktreePath);
+  const diverged = await lifecycle(fixture, fixture.control, "adopt", { pr: prUrl }, [2]);
+  assert.match(diverged.stderr, /do not all match/);
+  assert.equal(await metadataFile(worktreePath), before);
+  // Two recorders on the PR's branch is still ambiguous.
+  await writeMetadataFile(stray.json.worktreePath, (metadata) => ({ ...metadata, branch }));
+  assert.match((await lifecycle(fixture, fixture.control, "adopt", { pr: prUrl }, [2])).stderr, /ownership is ambiguous|unexpected branch/);
+});
+
+// Recorded from ss -ltnpH and lsof -nP -iTCP:4551 -sTCP:LISTEN -Fpc.
+const SS_SAMPLE = `LISTEN 0      511        127.0.0.1:4551      0.0.0.0:*    users:(("node",pid=1234,fd=20))
+LISTEN 0      4096          [::]:4552         [::]:*    users:(("vite",pid=99,fd=3),("node",pid=98,fd=3))
+LISTEN 0      128        0.0.0.0:22        0.0.0.0:*
+`;
+const LSOF_SAMPLE = "p1234\ncnode\np1240\ncnext-server\n";
+
+test("port holders are read from ss and lsof output, and verify names what holds a bound port", async (t) => {
+  // Catches: a holder lost to IPv6 brackets, several processes on one port,
+  // or a socket another user owns given a made-up pid.
+  assert.deepEqual(parseSsListeners(SS_SAMPLE), [
+    { port: 4551, pid: 1234, command: "node" },
+    { port: 4552, pid: 99, command: "vite" },
+    { port: 4552, pid: 98, command: "node" },
+    { port: 22, pid: null, command: null },
+  ]);
+  assert.deepEqual(parseLsofListeners(LSOF_SAMPLE, 4551), [{ port: 4551, pid: 1234, command: "node" }, { port: 4551, pid: 1240, command: "next-server" }]);
+  assert.deepEqual(parseLsofListeners("", 4551), []);
+
+  const fixture = await createFixture(t);
+  const probe = await listen(0);
+  const first = probe.address().port + 1;
+  probe.close();
+  await portsConfig(fixture, { first, last: first + 9, blockSize: 5 });
+  const prepared = await lifecycle(fixture, fixture.control, "prepare", { slug: "held port" });
+  const squatter = await listen(prepared.json.ports.first + 1);
+  t.after(() => squatter.close());
+  const refused = await verify(fixture, prepared, [2]);
+  // The command is the process's name as the kernel reports it (node, or its main thread's).
+  assert.match(refused.stderr, new RegExp(`port ${first + 1} is held by \\S+ \\(pid ${process.pid}\\); stop it`));
+  assert.match(refused.stderr, new RegExp(`holders: \\[\\{"port":${first + 1},"pid":${process.pid},"command":"[^"]+"\\}\\]`));
 });

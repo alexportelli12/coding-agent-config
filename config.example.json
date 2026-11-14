@@ -38,6 +38,7 @@
       "blockSize": 10
     },
     "warmCaches": true,
+    "pruneAfterDays": 14,
     "verifySlots": 2,
     "scope": {
       "enabled": true,

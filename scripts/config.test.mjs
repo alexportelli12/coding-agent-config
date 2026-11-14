@@ -36,6 +36,8 @@ test("a missing config.json means every default, with ~ expanded", async (t) => 
   assert.deepEqual(config.guard.deny, ["npm publish", "gh pr merge", "gh release create", "git push --force", "git push -f"]);
   assert.equal(config.workflow.branchPrefix, "agent/");
   assert.deepEqual(config.workflow.viewports, [1440, 768, 390]);
+  // Catches: prepare pruning abandoned workspaces after another age, or never.
+  assert.equal(config.workflow.pruneAfterDays, 14);
   assert.deepEqual(config.mods, ["run-pane"]);
 });
 
@@ -63,7 +65,7 @@ test("validation names every invalid key", async () => {
     paths: { worktreeRoot: "relative" },
     hosts: { opencode: "yes" },
     models: { claude: { explore: "haiku" } },
-    workflow: { branchPrefix: "agent", viewports: [100], ports: { last: 70000, blockSize: 1.5 } },
+    workflow: { branchPrefix: "agent", viewports: [100], ports: { last: 70000, blockSize: 1.5 }, pruneAfterDays: 0 },
     mods: ["unknown"],
     review: { tool: "codex" },
     browser: { executablePath: "chromium" },
@@ -79,6 +81,7 @@ test("validation names every invalid key", async () => {
       /config\.workflow\.viewports\[0\]: below 200/,
       /config\.workflow\.ports\.last: above 65535/,
       /config\.workflow\.ports\.blockSize: expected integer, got number/,
+      /config\.workflow\.pruneAfterDays: below 1/,
       /config\.mods\[0\]: expected one of run-pane$/m,
       /config\.review\.tool: expected one of ocr, none/,
       /config\.browser\.executablePath: does not match/,

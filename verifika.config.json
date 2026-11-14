@@ -16,7 +16,7 @@
     },
     "retro": {
       "command": "node --test scripts/retro/retro.test.mjs",
-      "paths": ["scripts/retro/**", "scripts/lib/config.mjs", "scripts/lib/secret-patterns.json", "scripts/lib/render.mjs", "scripts/ibni/lib/timings.mjs", "scripts/ibni/lib/metadata.mjs", "config.schema.json"]
+      "paths": ["scripts/retro/**", "scripts/lib/config.mjs", "scripts/lib/secret-patterns.json", "scripts/lib/render.mjs", "scripts/ibni/lib/timings.mjs", "scripts/ibni/lib/metadata.mjs", "scripts/ibni/lib/run-log.mjs", "config.schema.json"]
     },
     "hooks": {
       "command": "node --test scripts/hooks/hooks.test.mjs",

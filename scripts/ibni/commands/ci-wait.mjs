@@ -1,7 +1,9 @@
 import { WorkspaceError } from "../lib/errors.mjs";
 import { checksState, failedChecks, pullRequestForge } from "../lib/checks.mjs";
 import { cleanOutput, git, remoteBranchSha } from "../lib/git.mjs";
-import { ownedSession } from "../lib/session.mjs";
+import { workspaceConfig } from "../lib/config.mjs";
+import { appendRunLog, CI_OUTCOMES, runLogEntry } from "../lib/run-log.mjs";
+import { ownedSession, sessionWorkspace } from "../lib/session.mjs";
 import { appendHistory } from "../lib/timings.mjs";
 
 export const DEFAULT_CI_TIMEOUT_MINUTES = 45;
@@ -55,6 +57,17 @@ export async function waitForCi({ cwd = process.cwd(), sessionId, timeoutMinutes
     await appendHistory(cwd, sessionId, "records", {
       kind: "ci", at: new Date().toISOString(), sessionId, state: result.state, headSha: result.headSha, failed: result.failed.length, durationMs: result.durationMs,
     }).catch(() => {});
+    // A finished round goes to the run log too, which outlives the workspace.
+    // Best effort: the wait's result is what the caller needs.
+    if (CI_OUTCOMES[result.state]) {
+      try {
+        const { entry } = await sessionWorkspace(cwd, sessionId);
+        const config = await workspaceConfig();
+        await appendRunLog(config.paths.worktreeRoot, runLogEntry(entry.metadata, { event: "ci", outcome: CI_OUTCOMES[result.state] }));
+      } catch {
+        // Nothing to do: stats still has the wait.
+      }
+    }
     return result;
   };
   const stale = staleness({ request, remoteSha: await remoteBranchSha(root, metadata.pushUrl, metadata.branch), head, publishedSha: metadata.publishedSha, sessionId });

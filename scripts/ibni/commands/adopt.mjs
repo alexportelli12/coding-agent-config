@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { WorkspaceError } from "../lib/errors.mjs";
 import { checksSummary, pullRequestForge } from "../lib/checks.mjs";
 import { changeRequestForge } from "../lib/forge.mjs";
-import { assertClean, assertNoGitOperation, cleanOutput, git, remoteBranchSha, repositoryAt } from "../lib/git.mjs";
+import { assertClean, assertNoGitOperation, cleanOutput, fetchBranch, git, isAncestor, remoteBranchSha, repositoryAt } from "../lib/git.mjs";
 import { withRepositoryLock } from "../lib/lock.mjs";
 import { updateMetadata, workspaceSummary } from "../lib/metadata.mjs";
 import { locateWorkspaces, ownedSession, validateRemote } from "../lib/session.mjs";
@@ -79,7 +79,11 @@ async function mergedWithoutWorkspace(cwd, prUrl) {
   }
 }
 
-async function workspaceForPullRequest(cwd, prUrl) {
+// The workspace that recorded the pull request. When more than one did (a
+// retry that ran mark-pr again from a new workspace, say), the owner is picked
+// below; the others are reported, never touched. Anything less clear-cut stays
+// ambiguous and is refused.
+async function workspaceForPullRequest(cwd, prUrl, request = null) {
   const { matched } = await locateWorkspaces(cwd, (metadata) => metadata.prUrl === prUrl);
   if (matched.length === 0) {
     throw new WorkspaceError(
@@ -87,10 +91,65 @@ async function workspaceForPullRequest(cwd, prUrl) {
       "adopt only takes over a workspace whose session ran mark-pr with this exact URL; see ibni list.",
     );
   }
-  if (matched.length > 1) {
-    throw new WorkspaceError("more than one retained workspace records this pull request; ownership is ambiguous");
+  if (matched.length === 1) return { ...matched[0], passedOver: [] };
+  const ambiguous = new WorkspaceError("more than one retained workspace records this pull request; ownership is ambiguous", matched.map((entry) => entry.worktreePath).join("\n"));
+  if (!request?.headSha) throw ambiguous;
+  // Only a workspace on the pull request's head branch can own it; when more
+  // than one is, the one whose HEAD is the head commit or behind it. The
+  // ownership proofs that follow still apply to whichever is picked.
+  let owners = matched.filter((entry) => entry.metadata.branch === request.headBranch);
+  if (owners.length > 1) {
+    const onLine = [];
+    for (const entry of owners) {
+      const head = cleanOutput(await git(entry.worktreePath, ["rev-parse", "HEAD"], { allowedExitCodes: [0, 128] }));
+      // A head behind the pull request's is compared once its commits are here.
+      const behind = head === request.headSha || (head && await fetchBranch(entry.worktreePath, entry.metadata.pushUrl, entry.metadata.branch)
+        .then(() => isAncestor(entry.worktreePath, head, request.headSha), () => false));
+      if (behind) onLine.push(entry);
+    }
+    owners = onLine;
   }
-  return matched[0];
+  if (owners.length !== 1) throw ambiguous;
+  const passedOver = matched.filter((entry) => entry !== owners[0])
+    .map((entry) => ({ worktreePath: entry.worktreePath, branch: entry.metadata.branch, reason: "its branch is not the pull request's head branch, or its HEAD is off that branch's line" }));
+  return { ...owners[0], passedOver };
+}
+
+// A publish or sync interrupted in a session that is gone leaves
+// pendingOperation set, and every lifecycle command refuses the workspace.
+// Under the repository lock no live session can be mid-operation (both hold
+// it throughout), so adopt settles it where the outcome is provable: the push
+// landed or it did not; the sync left HEAD where it started. Any other state
+// is left for a person. Returns what it settled, or null.
+async function settleInterruptedOperation(located) {
+  const { metadata, worktreePath, gitDirectory } = located;
+  const operation = metadata.pendingOperation;
+  if (!operation) return null;
+  const unclear = new WorkspaceError(`the implementation has an incomplete ${operation.type} operation whose outcome adopt cannot prove`, "Inspect the retained worktree and remote state; automatic recovery would require guessing.");
+  const session = { repository: { gitDirectory }, metadata };
+  if (operation.type === "publication") {
+    const remoteSha = await remoteBranchSha(worktreePath, metadata.pushUrl, metadata.branch);
+    if (remoteSha === operation.headSha) {
+      await updateMetadata(session, { publishedSha: operation.headSha, pendingOperation: null });
+      return { type: "publication", outcome: "pushed", headSha: operation.headSha };
+    }
+    if (remoteSha === (operation.priorPublishedSha ?? null)) {
+      await updateMetadata(session, { pendingOperation: null });
+      return { type: "publication", outcome: "not pushed" };
+    }
+    throw unclear;
+  }
+  if (operation.type === "synchronization") {
+    const head = cleanOutput(await git(worktreePath, ["rev-parse", "HEAD"]));
+    const repository = await repositoryAt(worktreePath);
+    const untouched = head === operation.originalHead
+      && await assertNoGitOperation(repository).then(() => true, () => false)
+      && await assertClean(worktreePath, "the implementation worktree").then(() => true, () => false);
+    if (!untouched) throw unclear;
+    await updateMetadata(session, { pendingOperation: null });
+    return { type: "synchronization", outcome: "not applied" };
+  }
+  throw unclear;
 }
 
 // Ownership moves; it is never shared. adopt proves that the workspace is
@@ -101,25 +160,27 @@ async function workspaceForPullRequest(cwd, prUrl) {
 // workspace. Every check runs before any change; a failure changes nothing.
 export async function adoptWorkspace({ cwd = process.cwd(), prUrl }) {
   if (!prUrl || !/^https?:\/\//.test(prUrl)) throw new WorkspaceError("adopt requires --pr <pull-request-url>");
-  let initial;
-  try {
-    initial = await workspaceForPullRequest(cwd, prUrl);
-  } catch (error) {
-    const merged = error instanceof WorkspaceError && /no retained workspace/.test(error.message) ? await mergedWithoutWorkspace(cwd, prUrl) : null;
+  const recorders = await locateWorkspaces(cwd, (metadata) => metadata.prUrl === prUrl);
+  if (recorders.matched.length === 0) {
+    const merged = await mergedWithoutWorkspace(cwd, prUrl);
     if (merged) return merged;
-    throw error;
   }
-  // A merged pull request is reported before any ownership check: nothing is
-  // taken over, so a dirty or busy worktree does not matter to it.
-  const first = await pullRequest(initial.worktreePath, initial.metadata, prUrl).catch(() => null);
-  if (first?.request.state === "MERGED") return mergedReport(first.request, prUrl, initial.metadata);
+  // Read once from any recording workspace: a merged pull request is reported
+  // before any ownership check (nothing is taken over, so a dirty or busy
+  // worktree does not matter to it), and the head picks the owner among
+  // several recorders.
+  const probe = recorders.matched[0];
+  const first = probe ? await pullRequest(probe.worktreePath, probe.metadata, prUrl).catch(() => null) : null;
+  if (first?.request.state === "MERGED") return mergedReport(first.request, prUrl, probe.metadata);
+  const initial = await workspaceForPullRequest(cwd, prUrl, first?.request);
   const previousSessionId = initial.metadata.sessionId;
   const commonDirectory = initial.metadata.commonDirectory;
   const adopted = await withRepositoryLock(commonDirectory, async () => {
-    const located = await workspaceForPullRequest(cwd, prUrl);
+    const located = await workspaceForPullRequest(cwd, prUrl, first?.request);
     if (located.metadata.sessionId !== previousSessionId) {
       throw new WorkspaceError("the workspace changed owner while it was being adopted");
     }
+    const settled = await settleInterruptedOperation(located);
     // The previous owner's lifecycle checks (metadata path, branch, no pending
     // operation) apply unchanged before ownership can move.
     const session = await ownedSession(located.worktreePath, previousSessionId);
@@ -138,13 +199,25 @@ export async function adoptWorkspace({ cwd = process.cwd(), prUrl }) {
       throw new WorkspaceError("the pull request's head branch does not match the workspace", `Pull request: ${remote.headBranch}; workspace: ${metadata.branch}`);
     }
     const remoteSha = await remoteBranchSha(repository.root, metadata.pushUrl, metadata.branch);
-    const head = cleanOutput(await git(repository.root, ["rev-parse", "HEAD"]));
+    let head = cleanOutput(await git(repository.root, ["rev-parse", "HEAD"]));
     const heads = { pullRequest: remote.headSha, recorded: metadata.publishedSha, remote: remoteSha, local: head };
-    if (new Set(Object.values(heads)).size !== 1) {
-      throw new WorkspaceError(
-        "the pull request, remote branch, recorded publication and local HEAD do not all match",
-        `${Object.entries(heads).map(([name, sha]) => `${name}: ${sha ?? "none"}`).join("; ")}. Unpublished or outside commits mean another session may still be working; resolve that before adopting.`,
-      );
+    const mismatch = () => new WorkspaceError(
+      "the pull request, remote branch, recorded publication and local HEAD do not all match",
+      `${Object.entries(heads).map(([name, sha]) => `${name}: ${sha ?? "none"}`).join("; ")}. Unpublished or outside commits mean another session may still be working; resolve that before adopting.`,
+    );
+    // Someone pushed to the pull request (a reviewer's suggestion, say):
+    // the clean worktree is fast-forwarded to it, which loses nothing. A
+    // local commit the remote lacks, or diverged history, is still refused.
+    let fastForwarded = null;
+    if (!remoteSha || remote.headSha !== remoteSha) throw mismatch();
+    if (head !== remoteSha || metadata.publishedSha !== remoteSha) {
+      await fetchBranch(repository.root, metadata.pushUrl, metadata.branch);
+      const behind = await isAncestor(repository.root, head, remoteSha) && await isAncestor(repository.root, metadata.publishedSha, remoteSha);
+      if (!behind) throw mismatch();
+      await git(repository.root, ["merge", "--ff-only", "--quiet", remoteSha]);
+      fastForwarded = { from: head, to: remoteSha };
+      head = remoteSha;
+      await updateMetadata(session, { publishedSha: remoteSha });
     }
 
     const sessionId = randomBytes(12).toString("hex");
@@ -166,6 +239,9 @@ export async function adoptWorkspace({ cwd = process.cwd(), prUrl }) {
         ...workspaceSummary({ metadata: session.metadata }),
         headSha: head,
         pr: prFields(remote, prUrl),
+        ...(fastForwarded ? { fastForwarded } : {}),
+        ...(settled ? { settled } : {}),
+        ...(located.passedOver.length ? { passedOver: located.passedOver } : {}),
         dependencies: dependencyState(session.metadata.setup, await lockfilesAt(repository.root, "HEAD"), sessionId),
         verified: verifyGap ? { current: false, ...verifyGap } : { current: true },
       },
