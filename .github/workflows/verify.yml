@@ -57,3 +57,6 @@ jobs:
       # tail `ibni ci-wait` hands an agent, say what actually differed.
       - if: failure()
         run: npx vfk logs --failed
+      # TEMPORARY: show the scope tests passed, reverted in the next commit.
+      - if: success()
+        run: npx vfk logs workspace | grep -E "scope|^ℹ (tests|pass|fail|skipped)"
