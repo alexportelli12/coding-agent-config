@@ -12,6 +12,7 @@ import { loadConfig } from "../lib/config.mjs";
 import { COMMANDS } from "./ibni.mjs";
 import { MEDIA_EXTENSIONS } from "./lib/media.mjs";
 import { parseLsofListeners, parseSsListeners } from "./lib/ports.mjs";
+import { scopedSpawn } from "./lib/scope.mjs";
 
 const cli = fileURLToPath(new URL("./ibni.mjs", import.meta.url));
 const VERIFY_SCRIPT = "node -e \"process.exit(require('fs').existsSync('FAIL') ? 1 : 0)\"";
@@ -1523,6 +1524,18 @@ function pidAlive(pid) {
     return false;
   }
 }
+
+// Break: systemd 259 and later expand `$` in a scope's command line, so a
+// wrapper passed as `sh -c` text reads `$$` as `$` and counts itself as a
+// leftover, and the verify command is pasted in before sh parses it. Older
+// systemd leaves the text alone, so the scope tests below pass there anyway.
+test("a scope's command line holds no $ for systemd to expand, and the command travels in the environment", async () => {
+  const command = `test "$(printf %s ok)" = ok`;
+  const scoped = scopedSpawn({ command, env: {}, settings: { cpuWeight: 30, memoryMax: "512M" }, kind: "verify", sessionId: "s", logPath: "/tmp/x.log" });
+  assert.deepEqual(scoped.args.filter((arg) => arg.includes("$")), []);
+  assert.equal(scoped.env.IBNI_COMMAND, command);
+  assert.ok(existsSync(scoped.args.at(-1)), "the wrapper script ships beside scope.mjs");
+});
 
 // Break: verify runs as a plain child where a scope could start, so a server
 // the command leaves behind keeps its port and the run's cost goes unmeasured.

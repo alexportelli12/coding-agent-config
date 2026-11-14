@@ -20,20 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      # TEMPORARY scope diagnostics, removed before the final commit.
-      - name: scope diagnostics
-        run: |
-          readlink -f /usr/bin/sh; dpkg -s dash | grep Version; systemd-run --version | head -1
-          for i in 1 2 3; do
-            systemd-run --user --scope --quiet --collect -- sh -c '
-              read -r me _ < /proc/self/stat
-              echo "dollar=$$ self=$me"
-              IFS=: read -r _ _ path < /proc/self/cgroup
-              while read -r pid; do
-                ps -o pid=,ppid=,stat=,args= -p "$pid"
-              done < "/sys/fs/cgroup$path/cgroup.procs"'
-          done
-          exit 1
       # The docs freshness check compares against the merge base with main, so it needs the history.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
