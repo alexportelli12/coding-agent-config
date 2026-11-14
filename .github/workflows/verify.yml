@@ -23,17 +23,20 @@ jobs:
       # TEMPORARY scope diagnostics, removed before the final commit.
       - name: scope diagnostics
         run: |
-          set -x
-          id; systemd --version | head -1; cat /proc/self/cgroup
-          u=/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service
-          cat /sys/fs/cgroup/cgroup.subtree_control "$u/cgroup.controllers" "$u/cgroup.subtree_control" || true
-          systemctl show "user@$(id -u).service" -p Delegate -p DelegateControllers || true
-          systemd-run --user --scope --quiet --collect -p CPUWeight=30 -p MemoryMax=512M -p OOMPolicy=continue -- sh -c '
-            c=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup | head -n 1); echo "cgroup $c"; cat /proc/self/cgroup
-            echo controllers: $(cat "$c/cgroup.controllers"); ls "$c"
-            echo max $(cat "$c/memory.max") weight $(cat "$c/cpu.weight")
-            sleep 30 & echo "procs:"; cat "$c/cgroup.procs"; ps -o pid,ppid,args -p $(tr "\n" , < "$c/cgroup.procs" | sed "s/,$//")
-            echo self $$' || echo "scope exit $?"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            systemd-run --user --scope --quiet --collect -- sh -c '
+              sh -c true
+              c=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup | head -n 1)
+              out="run"
+              while read -r pid; do
+                [ "$pid" = "$$" ] && continue
+                comm=gone; state=gone
+                read -r comm < /proc/$pid/comm 2>/dev/null
+                while read -r k v _; do [ "$k" = State: ] && { state=$v; break; }; done 2>/dev/null < /proc/$pid/status
+                out="$out extra=$pid:$comm:$state"
+              done < "$c/cgroup.procs"
+              echo "$out"'
+          done
       # The docs freshness check compares against the merge base with main, so it needs the history.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

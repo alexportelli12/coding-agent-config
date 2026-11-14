@@ -9,16 +9,20 @@ import { readFile, rm } from "node:fs/promises";
 
 // Runs inside the scope: marks that the scope started, runs the command, then
 // writes the scope's own counters as labelled lines before the shell exits,
-// because a scope with nothing left in it is gone. The processes still in the
-// scope are counted with the shell's own read, which starts no process of its
-// own. A command killed by a signal ends the shell with the same signal.
+// because a scope with nothing left in it is gone. The cgroup path and the
+// processes still in the scope are read with the shell's own read, which
+// starts no process: a pipeline here would leave an orphan that exits just as
+// the count runs. A process counts only while it is alive, not a zombie
+// waiting for the user manager to reap it. A command killed by a signal ends
+// the shell with the same signal.
 const WRAPPER = [
   'echo started > "$IBNI_SCOPE_STATS"',
   'sh -c "$IBNI_COMMAND"',
   "status=$?",
-  "cgroup=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup | head -n 1)",
+  "IFS=: read -r _ _ path < /proc/self/cgroup",
+  'cgroup="/sys/fs/cgroup$path"',
   "left=0",
-  'while read -r pid; do [ "$pid" = "$$" ] || left=$((left + 1)); done < "$cgroup/cgroup.procs"',
+  'while read -r pid; do [ "$pid" = "$$" ] && continue; state=; while read -r key value _; do [ "$key" = State: ] && { state=$value; break; }; done 2>/dev/null < "/proc/$pid/status"; case "$state" in ""|Z|X) ;; *) left=$((left + 1)) ;; esac; done < "$cgroup/cgroup.procs"',
   '{ echo "left $left"; echo "peak $(cat "$cgroup/memory.peak" 2>/dev/null)"; grep "^usage_usec " "$cgroup/cpu.stat"; grep "^oom_kill " "$cgroup/memory.events"; } >> "$IBNI_SCOPE_STATS" 2>/dev/null',
   'if [ "$status" -gt 128 ]; then kill -$((status - 128)) $$; fi',
   "exit $status",
