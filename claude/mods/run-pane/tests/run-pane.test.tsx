@@ -58,7 +58,7 @@ function engine(on: On, answers: Answers, percent = 20) {
   return calls
 }
 
-test('a finished run reads as a card with a status capsule and progress, then the journey, the PR link and the ranked Jev answers', async ($, on) => {
+test('a finished run reads as a card with a status capsule and progress, then the journey and the PR link', async ($, on) => {
   const calls = engine(on, { info, stats })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.tool.call({ tool: 'Bash', command: 'ibni prepare --slug timed' })
@@ -76,20 +76,9 @@ test('a finished run reads as a card with a status capsule and progress, then th
     expect(await text(/Build the change/)).toBe('✓ Build the change')
     expect(await text(/Verify/)).toBe('✓ Verify  green · 1 of 2 runs passed')
     expect(await text(/Rendered QA/)).toBe('✓ Rendered QA  1 pass · 0 findings')
-    expect(await text(/Independent review/)).toBe('✓ Independent review  2 passes · 4 findings · cross-family')
+    expect(await text(/Independent review/)).toBe('✓ Independent review  2 passes · 4 findings')
     expect(await text(/^✓ Pull request/)).toBe('✓ Pull request  #42 open')
     expect(await ui.find({ type: 'Link' })).toMatchObject({ props: { href: 'https://github.com/alexportelli12/example/pull/42' } })
-    expect(await text(/JEV TRIAGE/)).toBe(' JEV TRIAGE   shadow')
-    const rows = (await ui.findAll({ type: 'Text', text: /^\S.*%$/ })).map(row => row.text)
-    expect(rows).toEqual([
-      '1-way   no     ▰▰▰▰▰▰▰▰▰▰  95%',
-      'users   no     ▰▰▰▰▰▰▰▰▰▱  90%',
-      'size    local  ▰▰▰▰▰▰▰▰▱▱  80%',
-      'UI      no     ▰▰▰▰▰▰▰▰▱▱  80%',
-      'review  2.4    ▰▰▰▰▰▰▱▱▱▱  60%',
-    ])
-    expect(await text(/^1-way: /)).toBeUndefined()
-    expect(await text(/^Recorded only/)).toBeDefined()
     expect(await text(/worktrees\/control/)).toBeUndefined()
     await ui.unmount()
   }
@@ -119,15 +108,6 @@ test('a red verify is the headline and its stage is marked failed', async ($, on
   const text = async (pattern: RegExp) => (await ui.find({ type: 'Text', text: pattern }))?.text
   expect(await text(/NEEDS ATTENTION/)).toBe(' NEEDS ATTENTION   started 12m ago')
   expect(await text(/^✗ Verify/)).toBe('✗ Verify  red · 0 of 1 run passed')
-  await ui.unmount()
-})
-
-test('Jev triage is absent until a triage call is answered', async ($, on) => {
-  const skipped = { ...stats.triage, status: 'skipped', reason: 'jev.enabled is false', answers: null }
-  engine(on, { info, stats: { ...stats, triage: skipped } })
-  await $.tool.call({ tool: 'Bash', command: `ibni info --session ${SESSION}` })
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /JEV TRIAGE/ })).toBeUndefined()
   await ui.unmount()
 })
 

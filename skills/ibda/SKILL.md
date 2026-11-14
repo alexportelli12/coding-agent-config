@@ -28,7 +28,7 @@ Rules that hold throughout:
   explain what differs, and ask; do not delete, move or force anything.
 - Ask only what cannot be detected. Everything else takes the defaults in
   `config.schema.json`.
-- Never write an API key into any file. Jev's key stays in `OPENROUTER_API_KEY`.
+- Never write an API key or token into any file.
 
 ## 1. Check prerequisites
 
@@ -70,15 +70,9 @@ you would pick:
    already exists there, ask for another path.
 2. **Hosts.** Offer the detected ones; each undetected host is set to `false`.
 3. **Models per role,** for each chosen host: the `reviewer` and `uiDesigner`
-   agents, and optionally a `crossFamilyReviewer` (a model from a different
-   family to the implementer's, which makes the independent review stronger).
-   OpenCode also has `general` and `explore`. "Host default" (`null`) is a fine
-   answer, and for OpenCode the schema defaults apply unless told otherwise.
-4. **Jev on or off.** Default off. If on, ask for the GitHub owners that are
-   theirs (`jev.owners`) and the repositories it may run in
-   (`jev.repositories`, as `owner/name`), and tell them to export
-   `OPENROUTER_API_KEY`. Jev only records answers beside the agent's own
-   decisions; it changes nothing.
+   agents. OpenCode also has `general` and `explore`. "Host default" (`null`)
+   is a fine answer, and for OpenCode the schema defaults apply unless told
+   otherwise.
 
 ## What the installer changes
 
@@ -125,14 +119,13 @@ First install, in order:
 2. Install dependencies from the clone: `npm ci`.
 3. Write the config to a scratch file outside `~/.config`, with only the keys
    that differ from the defaults. It must set `paths.checkout` to the clone,
-   and may set `hosts`, `models` and `jev`. Example:
+   and may set `hosts` and `models`. Example:
 
    ```json
    {
      "paths": { "checkout": "~/workspace/mexxi" },
      "hosts": { "opencode": false },
-     "models": { "claude": { "reviewer": "opus" } },
-     "jev": { "enabled": true, "owners": ["me"], "repositories": ["me/app"] }
+     "models": { "claude": { "reviewer": "opus" } }
    }
    ```
 
@@ -210,7 +203,7 @@ On a rerun, in the clone from `paths.checkout`:
 3. `git pull --ff-only`, then `npm ci`.
 4. `node scripts/install.mjs`, then `node scripts/install.mjs --check`. This
    re-renders the host files from `config.json`, so it also repairs a broken
-   link or a stale render. Edits to `config.json` (new models, Jev on) take
+   link or a stale render. Edits to `config.json` (new models, another host) take
    effect the same way.
 5. Work through anything `--check` lists, as in section 5.
 

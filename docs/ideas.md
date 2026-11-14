@@ -12,8 +12,7 @@ sources:
   - docs/decisions/*.md
   - config.schema.json
   - scripts/ibni/commands/record-evidence.mjs
-  - scripts/ibni/commands/cross-review.mjs
-reviewed: 2026-10-25
+reviewed: 2026-11-14
 ---
 
 # The ideas behind mexxi
@@ -60,9 +59,9 @@ You get before and after screenshots near the top of the pull request, and what 
 
 The author grading their own work is not a review. An agent that reviews its own change tends to approve it, and one that also fixes what it finds turns review into more building.
 
-For substantial changes, a separate reviewer agent judges the finished work; the building agent decides what counts, and a one-line fix skips it. The reviewer cannot edit code, so it only reports. If you set it up, it runs on a model from another [model family](glossary.md#model-family), such as an OpenAI model when Claude wrote the code. Then it does not share the builder's blind spots. The review itself always runs for substantial changes; only the cross-family model is off by default. On Claude Code it needs Codex installed and `models.claude.crossFamilyReviewer` set; on OpenCode, `models.opencode.crossFamilyReviewer`. On Codex the review is always from the same family. [Configuration](configuration/index.md#get-a-reviewer-from-another-model-family) shows how to set it up. The proof is still your checks and the browser; the review is an extra opinion on top.
+For substantial changes, a separate reviewer agent judges the finished work; the building agent decides what counts, and a one-line fix skips it. The reviewer cannot edit code, so it only reports. It works from the diff and a short note of the requirements, never the builder's reasoning. The proof is still your checks and the browser; the review is an extra opinion on top.
 
-The evidence shows `review ✓`, with a note when the reviewer came from the same model family as the builder. When no review ran, the evidence says so and the merge call is marked "(self-assessed)". [Decision 0007](decisions/0007-implementers-implement-reviewers-judge.md)
+The evidence shows `review ✓`. When no review ran, the evidence says so and the merge call is marked "(self-assessed)". [Decision 0007](decisions/0007-implementers-implement-reviewers-judge.md) and [decision 0022](decisions/0022-retire-jev-and-cross-family-review.md)
 
 ## The pull request's first screen does the explaining
 

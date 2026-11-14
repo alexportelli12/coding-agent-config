@@ -37,45 +37,6 @@ export function since(iso: string | undefined, now: number): string | undefined 
   return hours < 24 ? `${hours}h ${minutes % 60}m ago` : `${Math.floor(hours / 24)}d ago`
 }
 
-// Jev's answers, most confident first, each with the question asked in plain
-// words and its confidence as a percentage. Questions Jev did not answer, or
-// answered without a confidence, are left out.
-// Each question as a short label, so the panel stays narrow.
-const QUESTIONS: Record<string, string> = {
-  oneWayDoor: '1-way',
-  userFacing: 'users',
-  existingUi: 'UI',
-  size: 'size',
-  reviewValue: 'review',
-}
-
-export type TriageRow = { key: string; question: string; answer: string; percent: number }
-
-export function triageRanking(run: RunPaneSnapshot): TriageRow[] {
-  const answers = run.triage ?? {}
-  return Object.entries(answers)
-    .map(([key, value]) => {
-      const item = record(value)
-      const confidence = Number(item.confidence)
-      if (!('answer' in item) || !Number.isFinite(confidence)) return null
-      return { key, question: QUESTIONS[key] ?? key, answer: String(item.answer), percent: Math.round(Math.min(1, Math.max(0, confidence)) * 100) }
-    })
-    .filter((row): row is TriageRow => row !== null)
-    .sort((a, b) => b.percent - a.percent || a.question.localeCompare(b.question))
-}
-
-// A ten-cell bar for a percentage: filled cells, then empty ones.
-export function bar(percent: number, width = 10): { filled: string; empty: string } {
-  const cells = Math.round((Math.min(100, Math.max(0, percent)) / 100) * width)
-  return { filled: '▰'.repeat(cells), empty: '▱'.repeat(width - cells) }
-}
-
-// How sure Jev was, as a theme colour: green when sure, accent when fairly
-// sure, amber when it was close to guessing.
-export function confidenceTone(percent: number): Tone {
-  return percent >= 80 ? 'success' : percent >= 60 ? 'claude' : 'warning'
-}
-
 // The band's one-line hint, or null: a short badge for what happened and
 // what to do about it. Its key changes with the reason, so dismissing one
 // does not silence the next. A new session picks a pull request back up when

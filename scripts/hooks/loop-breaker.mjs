@@ -7,8 +7,7 @@
 // A successful edit (any host's file-editing tool) clears the session's
 // counts, because rerunning a check after changing the code is the normal
 // fix-and-verify loop, not a retry. A success of the same command clears that
-// command's count. The decision is deterministic; Phase 6 may add a Jev
-// judgement for near-identical retries.
+// command's count. The decision is deterministic.
 //
 // Hosts report a failure differently:
 //   Claude Code  PostToolUseFailure with `error` ("Exit code N\n..."); its

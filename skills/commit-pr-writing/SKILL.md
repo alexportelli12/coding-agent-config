@@ -124,8 +124,7 @@ nothing to do, write "Nothing; safe to merge as it is."
 
 **Evidence.** One line of the gates that actually ran, then, only if it changes
 the decision, the most useful proof in plain words, such as "Checkout tests
-cover discounts that would make the total negative." Say what did not run, and
-say when the reviewer shared the implementer's model family. Keep automated
+cover discounts that would make the total negative." Say what did not run. Keep automated
 tests, manual observations and unrun checks distinct. Do not unpack `verify`,
 paste logs, count routine findings resolved, invent fail-then-pass proof, infer
 a passing test from a changed spec, treat an unavailable capture or an

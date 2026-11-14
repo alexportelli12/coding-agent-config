@@ -3,7 +3,6 @@ sources:
   - AGENTS.md
   - skills/workflow-for-alex/SKILL.md
   - scripts/ibni/ibni.mjs
-  - docs/decisions/0008-jev-shadow-metadata-only.md
   - docs/decisions/0011-segwi.md
   - docs/decisions/0016-segwi-runs-trusted-like-own-sessions.md
   - docs/decisions/0015-tests-name-the-break-they-catch.md
@@ -11,7 +10,7 @@ sources:
   - docs/decisions/0018-machine-wide-run-slots.md
   - docs/decisions/0019-runs-in-a-systemd-scope.md
   - docs/decisions/0020-segwi-local-extensions.md
-reviewed: 2026-10-25
+reviewed: 2026-11-14
 ---
 
 # Glossary
@@ -41,10 +40,6 @@ An AI tool that works in your repository by reading files, running commands and 
 ## command
 
 A workflow you start by name in your agent, such as `/wettaq`. Each is a Markdown file in `commands/`, so one set of instructions serves every host.
-
-## cross-family review
-
-A review by a model from a different [model family](#model-family) than the one that wrote the code. Models from one family tend to share blind spots, so a reviewer from another family is a more independent second opinion.
 
 ## default branch
 
@@ -78,10 +73,6 @@ A small program a host runs automatically at a set moment, such as before every 
 
 A coding agent that mexxi installs into: OpenCode, Claude Code or Codex.
 
-## Jev triage
-
-An experiment that asks Jev, an outside decision model, which gates a task needs. It runs in shadow: it records its answers beside the agent's own choices and changes nothing, to learn whether it would help. It sends only metadata, never code, and is off unless you turn it on. [Decision 0008](decisions/0008-jev-shadow-metadata-only.md) explains why.
-
 ## loop breaker
 
 A hook that counts identical failing shell commands. When the same command fails a third time, it tells the agent to stop retrying and re-diagnose, because a third identical try rarely works. A successful edit resets the count.
@@ -97,10 +88,6 @@ The verdict at the top of a pull request, informed by the review: whether it is 
 ## mod
 
 A Claude Code plugin shipped in `claude/mods/`. The run pane shows where a run stands beside the chat. The command fixer quotes globs and keeps pipe failures visible before a shell command runs, so commands fail less often for avoidable reasons.
-
-## model family
-
-The AI models from one maker, such as the Claude models or the GPT models. A review is [cross-family](#cross-family-review) when the reviewer comes from a different family than the builder.
 
 ## Playwright
 

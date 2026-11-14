@@ -20,7 +20,7 @@ first, since establishing one is the job.
 `~/.config/mexxi/config.json`, default `~/workspace/mexxi`) owns the lifecycle
 this command reuses. Read it, and follow its **Prepare The Isolated Workspace**
 (use the slug `lesti`), **Delivery** and **Completion** sections as written.
-Skip its contract, triage and **Preflight** stages: ignore `baseline`, and do
+Skip its contract and **Preflight** stages: ignore `baseline`, and do
 not stop on a failing verify.
 
 ## Audit Before Changing Anything

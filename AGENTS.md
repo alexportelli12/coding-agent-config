@@ -82,7 +82,7 @@ its architecture, and follow them:
 - [0005 `npm run verify` is each repository's deterministic contract](docs/decisions/0005-verify-is-the-contract.md) (superseded by 0010)
 - [0006 Rules stay rules; deterministic layers back them up](docs/decisions/0006-rules-stay-rules-guard-backs-up.md)
 - [0007 Implementers implement, reviewers judge](docs/decisions/0007-implementers-implement-reviewers-judge.md)
-- [0008 Jev triage runs in shadow, from metadata only](docs/decisions/0008-jev-shadow-metadata-only.md)
+- [0008 Jev triage runs in shadow, from metadata only](docs/decisions/0008-jev-shadow-metadata-only.md) (superseded by 0022)
 - [0009 Docs are generated from the files they describe](docs/decisions/0009-docs-generated-from-sources.md)
 - [0010 Each repository names its verify command](docs/decisions/0010-repository-names-its-verify-command.md) (superseded by 0014)
 - [0014 ibni installs dependencies and runs the verify command](docs/decisions/0014-ibni-runs-setup-and-verify.md)
@@ -90,6 +90,7 @@ its architecture, and follow them:
 - [0017 Each workspace gets a block of ports, and ibni hands it to setup and verify](docs/decisions/0017-workspace-port-blocks.md)
 - [0018 Setup and verify wait for one of a few machine-wide slots](docs/decisions/0018-machine-wide-run-slots.md)
 - [0019 Setup and verify run in a systemd scope where one can start](docs/decisions/0019-runs-in-a-systemd-scope.md)
+- [0022 Retire Jev triage and cross-family review](docs/decisions/0022-retire-jev-and-cross-family-review.md)
 
 To change a decision, add a new record that supersedes it and change only the
 old record's status; never rewrite its reasoning.

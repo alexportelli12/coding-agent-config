@@ -4,7 +4,6 @@
 import { pathToFileURL } from "node:url";
 import { adoptWorkspace } from "./commands/adopt.mjs";
 import { cleanupWorkspaces } from "./commands/cleanup.mjs";
-import { crossReview } from "./commands/cross-review.mjs";
 import { fileQaChecks } from "./commands/file-qa-checks.mjs";
 import { workspaceInfo } from "./commands/info.mjs";
 import { listWorkspaces } from "./commands/list.mjs";
@@ -16,7 +15,6 @@ import { recordGate } from "./commands/record.mjs";
 import { recordEvidence } from "./commands/record-evidence.mjs";
 import { setupWorkspace } from "./commands/setup.mjs";
 import { workspaceStats } from "./commands/stats.mjs";
-import { triageSession } from "./commands/triage.mjs";
 import { synchronizeWorkspace } from "./commands/sync.mjs";
 import { verifyWorkspace } from "./commands/verify.mjs";
 import { WorkspaceError } from "./lib/errors.mjs";
@@ -26,7 +24,6 @@ import { recordStep } from "./lib/timings.mjs";
 export {
   adoptWorkspace,
   cleanupWorkspaces,
-  crossReview,
   fileQaChecks,
   listWorkspaces,
   markPullRequest,
@@ -37,7 +34,6 @@ export {
   recordGate,
   setupWorkspace,
   synchronizeWorkspace,
-  triageSession,
   verifyWorkspace,
   workspaceInfo,
   workspaceStats,
@@ -217,27 +213,6 @@ export const COMMANDS = {
     timed: true,
     run: (options) => fileQaChecks({ sessionId: options.session, from: options.from }),
   },
-  "cross-review": {
-    usage: "ibni cross-review --session <id> --mode <discovery|confirmation> --background <file> --target <text>",
-    summary: "Run the code-reviewer through codex exec in a read-only sandbox (Claude Code only).",
-    why: "A reviewer from the builder's own model family shares its blind spots.",
-    details: [
-      "For Claude Code, whose implementer and reviewer would otherwise share a model family. Runs the",
-      "shared code-reviewer instructions with models.claude.crossFamilyReviewer as the Codex model,",
-      "writes the reviewer's final message to evidenceDir/cross-review-<mode>.md and prints it as review.",
-      "Prints delegated: false with a reason when no model is configured or codex is not installed;",
-      "then use the code-reviewer subagent and state the reason in the pull request's Evidence.",
-      SESSION_LOOKUP,
-    ],
-    options: {
-      session: "The sessionId from prepare or adopt.",
-      mode: "discovery or confirmation, as for code-reviewer.",
-      background: "The background file the reviewer reads first (requirements, and for confirmation the ledger and fixes).",
-      target: "The review target, such as workspace changes against HEAD or a branch range.",
-    },
-    timed: true,
-    run: (options) => crossReview({ sessionId: options.session, mode: options.mode, background: options.background, target: options.target }),
-  },
   adopt: {
     usage: "ibni adopt --pr <pull-request-url>",
     summary: "Take over the retained workspace of an open pull request from a new session.",
@@ -281,11 +256,11 @@ export const COMMANDS = {
     run: () => listWorkspaces({}),
   },
   record: {
-    usage: "ibni record --session <id> (--verify <pass|fail> | --review <count> [--accepted <count> --reviewer <same|cross>] | --qa <count> | --before-shots <taken|skipped>)",
+    usage: "ibni record --session <id> (--verify <pass|fail> | --review <count> [--accepted <count>] | --qa <count> | --before-shots <taken|skipped>)",
     summary: "Record a verify run, the finding count of a review or QA pass, or the before-shots decision.",
     why: "The agent records each verify run, browser check and review as it finishes, so ibni stats and /irrifletti can show how runs went.",
     details: [
-      "One result per call; stats reports them and compares the gates with Jev's triage.",
+      "One result per call; stats reports them.",
       "ibni verify records its own runs; --verify is for a host that runs the verify command another",
       "way, and never satisfies the record-evidence or publish gate.",
       SESSION_LOOKUP,
@@ -295,7 +270,6 @@ export const COMMANDS = {
       verify: "Outcome of a full run of the repository's verify command: pass or fail.",
       review: "Number of findings an independent review pass returned.",
       accepted: "With --review: how many of those findings you accepted (fixed).",
-      reviewer: "With --review: same if the reviewer shares your model family, cross if it does not (cross-review delegated).",
       qa: "Number of findings a rendered QA pass returned.",
       "before-shots": "Whether before-shots of existing UI were taken or skipped.",
     },
@@ -306,36 +280,11 @@ export const COMMANDS = {
       qa: options.qa,
       beforeShots: options["before-shots"],
       accepted: options.accepted,
-      reviewer: options.reviewer,
     }),
-  },
-  triage: {
-    usage: "ibni triage --session <id> --request-file <file> --contract-file <file>",
-    summary: "Ask Jev which gates the change needs, and record the answers (shadow: nothing changes).",
-    why: "Experimental: it tests whether an outside decision model would choose a task's checks better than the agent, without letting it change anything.",
-    details: [
-      "Sends one batched request to OpenRouter (jev.endpoint, jev.model) with the request text, the",
-      "task contract, the changed paths and diff stats against baseSha; never file contents, diffs,",
-      "logs, env files or command output. Secrets are redacted first, and the request stays below",
-      "jev.maxPayloadBytes by shortening the path list, then the request, then the contract.",
-      "Runs only when jev.enabled is true, the push remote's github.com repository is listed in",
-      "jev.repositories and owned by one of jev.owners, and OPENROUTER_API_KEY is set.",
-      "Always exits 0 once the session is found: a skip, timeout, 429 (retried once), HTTP error or",
-      "malformed answer prints outcome skipped or failed with a reason, and the run carries on.",
-      "Prints the outcome only; the answers go to session metadata, where stats reports them",
-      "beside the agent's own gate choices.",
-      SESSION_LOOKUP,
-    ],
-    options: {
-      session: "The sessionId from prepare or adopt.",
-      "request-file": "File holding the user's request text.",
-      "contract-file": "File holding the active task contract.",
-    },
-    run: (options) => triageSession({ sessionId: options.session, requestFile: options["request-file"], contractFile: options["contract-file"] }),
   },
   stats: {
     usage: "ibni stats --session <id>",
-    summary: "Print the session's step timings, setup, verify attempts, finding counts and Jev triage as JSON.",
+    summary: "Print the session's step timings, setup, verify attempts and finding counts as JSON.",
     why: "You need to see where a run spent its time and how often its checks failed.",
     details: [
       SESSION_LOOKUP,

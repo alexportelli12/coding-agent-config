@@ -37,13 +37,6 @@ applicable.
 If OCR delegation or rule resolution fails, the review gate is not clear;
 report the failure.
 
-The implementer and reviewer share blind spots when they share a model family,
-so where the host can name a reviewer model from another family it does:
-OpenCode renders it as `code-reviewer`'s model, and Claude Code runs the review
-through `ibni cross-review` (its overlay says how). Codex has only one model
-family, so its review is always same-family. Whenever the reviewer shares the
-implementer's family, the pull request's Evidence says so.
-
 The reviewer's latest door and blast-radius call becomes the pull request's
 **Merge call**, in plain words (`commit-pr-writing` says how). A pull request
 whose review is still blocked is not delivered, so the description never

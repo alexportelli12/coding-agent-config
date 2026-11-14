@@ -47,7 +47,7 @@ Each mark is a gate:
 - **rendered QA**: the agent opened the running app in a real browser and checked it. See [rendered QA](glossary.md#rendered-qa).
 - **review**: a separate reviewer agent, which cannot edit code, judged the change.
 
-The review mark notes when the reviewer came from the same model family as the agent that wrote the code. A reviewer from another family is a more independent second opinion. The line also names what did not run and why, such as no browser check for a change with no UI.
+The line also names what did not run and why, such as no browser check for a change with no UI.
 
 ## Below the first screen
 

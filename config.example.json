@@ -14,18 +14,15 @@
       "general": null,
       "explore": null,
       "uiDesigner": null,
-      "reviewer": null,
-      "crossFamilyReviewer": null
+      "reviewer": null
     },
     "claude": {
       "uiDesigner": null,
-      "reviewer": null,
-      "crossFamilyReviewer": null
+      "reviewer": null
     },
     "codex": {
       "uiDesigner": null,
-      "reviewer": null,
-      "crossFamilyReviewer": null
+      "reviewer": null
     }
   },
   "workflow": {
@@ -75,17 +72,6 @@
   },
   "forge": {
     "hosts": {}
-  },
-  "jev": {
-    "enabled": false,
-    "stage": "shadow",
-    "model": "typesafe/jev-1.14",
-    "endpoint": "https://openrouter.ai/api/alpha/decisions",
-    "owners": [],
-    "repositories": [],
-    "maxPayloadBytes": 32768,
-    "timeoutMs": 5000,
-    "zeroDataRetention": true
   },
   "segwi": {
     "enabled": false,

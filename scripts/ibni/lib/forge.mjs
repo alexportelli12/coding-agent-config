@@ -41,14 +41,6 @@ export async function configuredRemoteRepository(root, remote) {
   return null;
 }
 
-// The push remote's github.com repository as owner/repo, or null. Jev triage
-// matches only this, so a self-hosted forge's names never collide with it.
-export async function configuredGithubRepository(root, remote) {
-  const parsed = await configuredRemoteRepository(root, remote);
-  if (parsed?.host !== "github.com" || parsed.namespace.includes("/")) return null;
-  return { owner: parsed.namespace, repo: parsed.repo };
-}
-
 // "forge" in the repository's committed .mexxi.json, read from the base commit
 // like ciCheck, so only what the default branch already holds counts.
 async function committedForge(root, baseSha) {

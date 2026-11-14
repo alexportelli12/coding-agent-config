@@ -1,5 +1,5 @@
-// ibni info and ibni stats for a finished run (prepare, an answered Jev
-// triage, a refused publish, a failed sync, evidence, publish, mark-pr),
+// ibni info and ibni stats for a finished run (prepare, a refused publish, a
+// failed sync, evidence, publish, mark-pr),
 // recorded from the real CLI by scripts/ibni/ibni.test.mjs's stats scenario.
 // That test also checks these keys still match what ibni prints, so the pane
 // is tested against its real input. setup and verification were added by hand,
@@ -7,6 +7,7 @@
 // ports and portEnv likewise when workspaces got port blocks, and
 // verification.queuedMs when runs began waiting for a slot, and its scope
 // fields when runs moved into systemd scopes (unscoped in that scenario).
+// review.accepted replaced the same/cross split by hand when that was retired.
 export const info = {
   "operation": "info",
   "sessionId": "2c026ea35efd82bef78e30b9",
@@ -152,18 +153,7 @@ export const stats = {
         "findings": 1
       }
     ],
-    "byReviewer": {
-      "same": {
-        "rounds": 1,
-        "findings": 3,
-        "accepted": 2
-      },
-      "cross": {
-        "rounds": 1,
-        "findings": 1,
-        "accepted": 1
-      }
-    }
+    "accepted": 2
   },
   "setup": {
     "ran": false,
@@ -194,110 +184,5 @@ export const stats = {
         "findings": 0
       }
     ]
-  },
-  "triage": {
-    "status": "answered",
-    "reason": null,
-    "answers": {
-      "existingUi": {
-        "answer": "no",
-        "confidence": 0.8
-      },
-      "userFacing": {
-        "answer": "no",
-        "confidence": 0.9
-      },
-      "oneWayDoor": {
-        "answer": "no",
-        "confidence": 0.95
-      },
-      "size": {
-        "answer": "local",
-        "confidence": 0.8
-      },
-      "reviewValue": {
-        "answer": 2.4,
-        "confidence": 0.6
-      }
-    },
-    "calls": [
-      {
-        "at": "2026-10-21T02:30:32.458Z",
-        "sessionId": "2c026ea35efd82bef78e30b9",
-        "stage": "shadow",
-        "outcome": "answered",
-        "reason": null,
-        "model": "typesafe/jev-1.14",
-        "payloadBytes": 2034,
-        "redacted": false,
-        "redactions": 0,
-        "truncated": [],
-        "attempts": 1,
-        "httpStatus": 200,
-        "latencyMs": 76,
-        "cost": 4e-05,
-        "inputTokens": 900,
-        "responseModel": "typesafe/jev-1.14-20261001",
-        "responseId": "gen-1",
-        "answers": {
-          "existingUi": {
-            "answer": "no",
-            "confidence": 0.8,
-            "probability": 0.2
-          },
-          "userFacing": {
-            "answer": "no",
-            "confidence": 0.9,
-            "probability": 0.1
-          },
-          "oneWayDoor": {
-            "answer": "no",
-            "confidence": 0.95,
-            "probability": 0.05
-          },
-          "size": {
-            "answer": "local",
-            "confidence": 0.8,
-            "probabilities": {
-              "local": 0.8,
-              "feature": 0.2
-            }
-          },
-          "reviewValue": {
-            "answer": 2.4,
-            "level": 2,
-            "of": 3,
-            "confidence": 0.6,
-            "probabilities": {
-              "0": 0,
-              "1": 0.1,
-              "2": 0.4,
-              "3": 0.5
-            }
-          }
-        }
-      }
-    ],
-    "agreement": {
-      "compared": 3,
-      "agreed": 2,
-      "gates": {
-        "beforeShots": {
-          "triage": false,
-          "agent": false,
-          "agree": true
-        },
-        "renderedQa": {
-          "triage": false,
-          "agent": true,
-          "agree": false
-        },
-        "review": {
-          "triage": true,
-          "agent": true,
-          "agree": true
-        }
-      }
-    }
   }
 }

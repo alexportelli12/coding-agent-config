@@ -93,12 +93,6 @@ Before changing code:
 4. Derive a concise active contract: goal, requirements, meaningful resolved
    decisions, observable behaviour and experience acceptance criteria, real
    constraints, and relevant edge cases. Omit categories that add no value.
-5. Write the request text and the contract to `request.md` and `contract.md`
-   in `evidenceDir`, then run `ibni triage --session "<sessionId>"
-   --request-file <request.md> --contract-file <contract.md>` once. Triage is
-   in shadow: it records Jev's view of the gates for later comparison and
-   changes nothing. Decide every gate below exactly as written, whatever it
-   prints, and carry on if it reports `skipped` or `failed`.
 
 Repository evidence and established product principles are the first source of
 answers. Ask the user only about genuine unresolved product behaviour, UX
@@ -169,9 +163,8 @@ again. Never weaken repository safeguards to pass. Any later code remediation
 requires another commit and another run of the verify command. `ibni verify`
 records each run itself. Record each rendered QA or reviewer pass with
 `ibni record --session "<sessionId>"` and `--qa <finding-count>` or
-`--review <finding-count> --accepted <count> --reviewer same|cross` (`cross`
-whenever the reviewer's model is from another family than yours, by whatever
-route, `accepted` being the findings you fixed); `ibni stats` reports them
+`--review <finding-count> --accepted <count>` (`accepted` being the findings
+you fixed); `ibni stats` reports them
 beside the lifecycle step timings.
 
 Then re-read the original request and active contract, and inspect the final

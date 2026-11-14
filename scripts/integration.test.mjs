@@ -472,28 +472,25 @@ test("models and hosts come from config.json, and --check notices a config chang
   await assert.rejects(install({ home, checkout }), /models\.claude\.reviewer: expected string or null/);
 });
 
-test("the cross-family reviewer is the code-reviewer's model on OpenCode and Codex, and stays a Codex model for Claude Code", async (t) => {
-  const home = await mkdtemp(path.join(os.tmpdir(), "mexxi-cross-family-"));
+test("each host's models.<host>.reviewer is its code-reviewer's model, and null leaves the host's default", async (t) => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "mexxi-reviewer-model-"));
   t.after(() => rm(home, { recursive: true, force: true }));
   await configure(home, { models: {
-    opencode: { reviewer: "openai/gpt-5.6-luna", crossFamilyReviewer: "anthropic/claude-opus-4-8" },
-    claude: { reviewer: "sonnet", crossFamilyReviewer: "gpt-5.6-review" },
-    codex: { crossFamilyReviewer: "gpt-5.6-xhigh" },
+    opencode: { reviewer: "anthropic/claude-opus-4-8" },
+    claude: { reviewer: "sonnet" },
+    codex: { reviewer: "gpt-5.6-xhigh" },
   } });
   await registerPlaywright(home);
   await install({ home, checkout });
   const opencode = JSON.parse(await readFile(path.join(home, ".config/opencode/opencode.json"), "utf8"));
   assert.equal(opencode.agent["code-reviewer"].model, "anthropic/claude-opus-4-8");
   assert.match(await readFile(path.join(home, ".codex/agents/code-reviewer.toml"), "utf8"), /^model = "gpt-5\.6-xhigh"$/m);
-  // Claude Code's subagent keeps the reviewer model; the Codex model is only used by ibni cross-review.
-  const claude = await readFile(path.join(home, ".claude/agents/code-reviewer.md"), "utf8");
-  assert.match(claude, /^model: "sonnet"$/m);
-  assert.doesNotMatch(claude, /gpt-5\.6-review/);
+  assert.match(await readFile(path.join(home, ".claude/agents/code-reviewer.md"), "utf8"), /^model: "sonnet"$/m);
 
-  await configure(home, { models: { opencode: { reviewer: "openai/gpt-5.6-luna" } } });
+  await configure(home, {});
   await install({ home, checkout });
   const fallback = JSON.parse(await readFile(path.join(home, ".config/opencode/opencode.json"), "utf8"));
-  assert.equal(fallback.agent["code-reviewer"].model, "openai/gpt-5.6-luna", "null falls back to the reviewer's model");
+  assert.equal(fallback.agent["code-reviewer"].model, undefined);
   assert.doesNotMatch(await readFile(path.join(home, ".codex/agents/code-reviewer.toml"), "utf8"), /^model =/m);
 });
 
@@ -569,7 +566,7 @@ test("a clean home reaches a green --check from a supplied config file, which is
   const home = await mkdtemp(path.join(os.tmpdir(), "mexxi-setup-"));
   t.after(() => rm(home, { recursive: true, force: true }));
   const supplied = path.join(home, "supplied.json");
-  const value = { paths: { checkout }, hosts: { opencode: true, claude: true, codex: true }, models: { claude: { reviewer: "opus" } }, jev: { enabled: true } };
+  const value = { paths: { checkout }, hosts: { opencode: true, claude: true, codex: true }, models: { claude: { reviewer: "opus" } }, workflow: { branchPrefix: "agent/" } };
   await writeFile(supplied, JSON.stringify(value));
   const configFile = path.join(home, ".config/mexxi/config.json");
   const options = { home, checkout, hookDirectory: path.join(home, "git-hooks") };
@@ -591,7 +588,7 @@ test("a clean home reaches a green --check from a supplied config file, which is
 
   // Rerunning with the same file is a no-op; a different one is refused, untouched.
   assert.equal((await install({ ...options, configSource: supplied })).created, 0);
-  await writeFile(supplied, JSON.stringify({ ...value, jev: { enabled: false } }));
+  await writeFile(supplied, JSON.stringify({ ...value, workflow: { branchPrefix: "task/" } }));
   await assert.rejects(install({ ...options, configSource: supplied }), /already exists and differs[\s\S]*no changes made/);
   assert.deepEqual(JSON.parse(await readFile(configFile, "utf8")), value);
   // A config naming another clone cannot install from this one.

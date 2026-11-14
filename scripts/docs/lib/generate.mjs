@@ -72,9 +72,9 @@ const CLI_GROUPS = [
     names: ["list", "info", "cleanup", "stats", "adopt"],
   },
   {
-    title: "Experimental or host-specific",
-    text: "These run only in some setups: an experiment that is off by default, a step only Claude Code uses, and one that needs the browser check's suggestions.",
-    names: ["triage", "cross-review", "file-qa-checks"],
+    title: "Only in some setups",
+    text: "This runs only when the browser check suggests checks worth filing as issues.",
+    names: ["file-qa-checks"],
   },
 ];
 
