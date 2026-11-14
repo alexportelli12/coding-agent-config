@@ -830,7 +830,7 @@ export function helpReason(line, { cwd, host = null, tool = null, background = f
     if (!owned.has(directory)) owned.set(directory, ownedWorktree(directory));
     return owned.get(directory);
   };
-  const inBackground = host === "claude" ? "with run_in_background: true and wait for its completion notification" : "in the background and wait for it to finish";
+  const inBackground = host === "claude" ? "with run_in_background: true and wait for its completion notification" : "and wait for it to finish";
 
   // A full verify run by hand, inside an ibni worktree: ibni verify runs the
   // same command with the workspace's ports and slot, and records the result.

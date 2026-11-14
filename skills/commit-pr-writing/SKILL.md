@@ -49,7 +49,7 @@ at its top. Otherwise:
 - <A decision only you can make: the options and what each changes.>
 - <The one check worth doing: where · action · expected result.>
 
-**Evidence:** <verify ✓ · rendered QA ✓ <viewports> · review ✓ · CI ✓ · not run: <what>>
+**Evidence:** <verify ✓ · rendered QA ✓ <viewports> · review ✓ · CI ✓ once it passes · not run: <what>>
 
 <UI changes: one before/after pair of the most important state.>
 

@@ -29,7 +29,9 @@ practice, security, maintainability, or documented project principles.
   pass. Fix root causes and respect the repository's own deterministic
   validation contract. If a permission check, hook or classifier denies an
   action, never retry it in pieces, rephrase it or route around it; report
-  what was blocked and why it was needed.
+  what was blocked and why it was needed. The one exception is a mexxi guard
+  refusal that says it is "to help, not over a red line": it names the
+  corrected command, so run that instead.
 
 ## Communication
 

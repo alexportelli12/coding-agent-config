@@ -40,7 +40,7 @@ function mergedReport(request, prUrl, { worktreePath = null, controlWorktreePath
     adopted: false,
     pr: prFields(request, prUrl),
     worktreePath,
-    nextAction: `The pull request has merged, so no worktree takes changes for it. Run the post-merge steps its description lists from ${control}, after updating it to the latest ${defaultBranch ?? "default branch"} (git pull --ff-only there); no ibni workspace is needed. A further code change is a new /wettaq.`,
+    nextAction: `The pull request has merged, so no worktree takes changes for it. Run the post-merge steps its description lists from ${control}, after updating it to the latest ${defaultBranch ?? "default branch"} (git pull --ff-only there), but only when it is on that branch with no changes; otherwise say so and ask, and never switch its branch or stash. No ibni workspace is needed. A further code change is a new /wettaq.`,
   };
 }
 
@@ -157,7 +157,10 @@ async function settleInterruptedOperation(located) {
 // recorded branch, and its head commit is the recorded publication, the remote
 // branch and the clean local HEAD. Only then does it issue a new session id,
 // which retires the previous one, so two sessions can never both drive one
-// workspace. Every check runs before any change; a failure changes nothing.
+// workspace. Every ownership check runs before ownership moves, and a refused
+// adoption keeps the old session. Two provable corrections may already have
+// been written by then: a dead session's settled pendingOperation, and a
+// clean worktree fast-forwarded to the pull request's head.
 export async function adoptWorkspace({ cwd = process.cwd(), prUrl }) {
   if (!prUrl || !/^https?:\/\//.test(prUrl)) throw new WorkspaceError("adopt requires --pr <pull-request-url>");
   const recorders = await locateWorkspaces(cwd, (metadata) => metadata.prUrl === prUrl);

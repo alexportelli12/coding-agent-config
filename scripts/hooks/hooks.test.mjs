@@ -700,7 +700,7 @@ test("tests, lint or verify piped into tail, head or grep without pipefail are r
 test("a full verify run by hand inside an ibni worktree is refused in favour of ibni verify in the background", async () => {
   for (const command of ["npm run verify", "npm run -s verify", "npm run --silent verify", "npx verifika --all", "verifika --all", "vfk --all", "npm run verify 2>&1 | tail"]) {
     await assertHelped(command, "runs the full verify by hand inside an ibni worktree, without the workspace's ports, run slot or recorded result; run ibni verify --session abc123 with run_in_background: true and wait for its completion notification", { cwd: owned, hosts: ["claude"] });
-    await assertHelped(command, "run ibni verify --session abc123 in the background and wait for it to finish", { cwd: owned, hosts: ["codex", "opencode"] });
+    await assertHelped(command, "run ibni verify --session abc123 and wait for it to finish", { cwd: owned, hosts: ["codex", "opencode"] });
   }
   await assertHelped(`cd ${owned} && npm run verify`, "ibni verify --session abc123", { cwd: clone });
   for (const command of ["vfk --changed", "vfk --check hooks", "npx verifika --changed", "node --test scripts/a.test.mjs", "npm test", "npm run verify:docs"]) {

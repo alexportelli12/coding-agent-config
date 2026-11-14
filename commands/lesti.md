@@ -73,9 +73,9 @@ reads separately from the code fixes.
 
 **Fix, never weaken.** Fix a failure at its cause. Disabling a lint rule,
 skipping or deleting a test, loosening types or lowering a threshold is not a
-fix. When a failure needs a product decision, follow `/wettaq`'s **Decide and
-record** rule: take the most reasonable reading, fix it and record it; stop and
-ask only for a one-way door or product direction.
+fix. When a fix needs a choice the repository does not settle, follow
+`/wettaq`'s **Decide and record** rule: take the most reasonable reading, fix it
+and record it. Stop and ask only for a one-way door or product direction.
 
 ## Prove It
 

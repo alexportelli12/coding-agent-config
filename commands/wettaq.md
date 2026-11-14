@@ -145,7 +145,8 @@ review leave no unresolved blocker.
 
 Run `ibni ci-wait --session "<sessionId>"` in the background and wait for it.
 
-- `green`: the run is done.
+- `green`: update the description's Evidence with CI's result; the run is
+  done.
 - `failed`: fix the failed jobs from their log tails in a new commit, verify,
   record evidence and publish, then wait again; at most three rounds.
 - `none`: the repository runs no pull-request checks; done, and say so.

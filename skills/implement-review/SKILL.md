@@ -83,8 +83,9 @@ first: failed checks and unresolved review comments are part of the request.
 
 - **Merged** (`merged: true`): adopt takes nothing over. Run the description's
   **After merge** steps from the control checkout on the freshly pulled default
-  branch, never in the retained worktree; a step only a person may take stays
-  theirs, so report it.
+  branch, never in the retained worktree, and only when that checkout is on the
+  default branch with no changes; otherwise ask, and never switch its branch or
+  stash. A step only a person may take stays theirs: report it.
 - **Open:** run `ibni sync --session "<sessionId>"` first. When the pull request
   was stacked on one that has merged, sync merges the new base and retargets
   it; follow any `stack.nextAction`. Follow `dependencies.nextAction` when
