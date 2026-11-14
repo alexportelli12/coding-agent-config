@@ -75,6 +75,6 @@ Most people can review the pull request in about a minute. [Reviewing a mexxi pu
 
 An agent that gets stuck occasionally does something destructive: a force push, a merge, a retry of the same failing command twenty times.
 
-The rules forbid merging, force pushing and pushing to the default branch. A [guard](glossary.md#guard) hook backs some of them up by blocking those commands. The [loop breaker](glossary.md#loop-breaker) tells the agent to stop and rethink when the same command fails a third time. The rules still bind where the guard cannot see.
+The rules forbid merging, force pushing and pushing to the default branch. A [guard](glossary.md#guard) hook backs some of them up by blocking those commands. It backs up the everyday shell rules too: a command that would fail for an avoidable reason comes back with the corrected command, never silently rewritten. The [loop breaker](glossary.md#loop-breaker) tells the agent to stop and rethink when the same command fails a third time. The rules still bind where the guard cannot see.
 
-Mostly you notice nothing: the agent never merges, never pushes to your main branch, and stops to report rather than forcing its way through. [Decision 0006](decisions/0006-rules-stay-rules-guard-backs-up.md)
+Mostly you notice nothing: the agent never merges, never pushes to your main branch, and stops to report rather than forcing its way through. [Decision 0006](decisions/0006-rules-stay-rules-guard-backs-up.md) and [decision 0021](decisions/0021-hooks-refuse-with-the-fix.md)

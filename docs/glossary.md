@@ -10,6 +10,7 @@ sources:
   - docs/decisions/0018-machine-wide-run-slots.md
   - docs/decisions/0019-runs-in-a-systemd-scope.md
   - docs/decisions/0020-segwi-local-extensions.md
+  - docs/decisions/0021-hooks-refuse-with-the-fix.md
 reviewed: 2026-11-14
 ---
 
@@ -63,7 +64,7 @@ A check a run must pass before it moves on, such as verify, rendered QA or revie
 
 ## guard
 
-The hook that backs up the rules by stopping dangerous commands, such as force pushes and merges, before they run. A stuck agent occasionally tries one anyway. Codex runs it only once you trust it in `/hooks`.
+The hook that backs up the rules by stopping dangerous commands, such as force pushes and merges, before they run. A stuck agent occasionally tries one anyway. It also backs up the everyday shell rules. A command that would fail or mislead for an avoidable reason, such as an unquoted glob, comes back with the corrected command. It never rewrites a command itself. Codex runs it only once you trust it in `/hooks`. See [decision 0021](decisions/0021-hooks-refuse-with-the-fix.md).
 
 ## hook
 
@@ -87,7 +88,7 @@ The verdict at the top of a pull request, informed by the review: whether it is 
 
 ## mod
 
-A Claude Code plugin shipped in `claude/mods/`. The run pane shows where a run stands beside the chat. The command fixer quotes globs and keeps pipe failures visible before a shell command runs, so commands fail less often for avoidable reasons.
+A Claude Code plugin shipped in `claude/mods/`. The run pane shows where a run stands beside the chat.
 
 ## Playwright
 

@@ -19,20 +19,19 @@ async function server({ directory }) {
     "tool.execute.before": async (input, output) => {
       if (input.tool !== "bash") return;
       let guardToolCall;
+      let refusalMessage;
       try {
-        ({ guardToolCall } = await import("../../scripts/hooks/guard-rules.mjs"));
+        ({ guardToolCall, refusalMessage } = await import("../../scripts/hooks/guard-rules.mjs"));
       } catch (error) {
         throw new Error(`mexxi guard could not load; refusing: ${error.message}`);
       }
-      const reason = await guardToolCall({
+      const verdict = await guardToolCall({
         tool_name: "bash",
         tool_input: { command: output.args?.command },
         cwd: path.resolve(directory, output.args?.workdir ?? "."),
         session_id: input.sessionID,
-      });
-      if (reason) {
-        throw new Error(`mexxi guard blocked this command: ${reason}. Do not retry it in pieces, rephrase it or route around it; report what was blocked and why it was needed.`);
-      }
+      }, { host: "opencode" });
+      if (verdict) throw new Error(refusalMessage(verdict));
     },
     "tool.execute.after": async (input, output) => {
       const base = { session_id: input.sessionID, tool_name: input.tool, tool_input: input.args ?? {} };

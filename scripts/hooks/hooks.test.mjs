@@ -29,6 +29,7 @@ await writeFile(configFile, baseConfig);
 const { default: opencodePlugin } = await import("../../opencode/plugins/mexxi-guard.js");
 const { exitCode } = await import("./loop-breaker.mjs");
 const { resolveConfig } = await import("../lib/config.mjs");
+const { claudeHooks, codexHooks, mergeOwnedHooks } = await import("../lib/host-hooks.mjs");
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -63,16 +64,16 @@ const codexInput = (command, cwd) => ({
   permission_mode: "default", tool_name: "Bash", tool_input: { command }, tool_use_id: "call_1", turn_id: "turn_1",
 });
 
-function runHook(script, input) {
-  const result = spawnSync(process.execPath, [path.join(hooks, script)], { input: JSON.stringify(input), encoding: "utf8", env: process.env });
+function runHook(script, input, args = []) {
+  const result = spawnSync(process.execPath, [path.join(hooks, script), ...args], { input: JSON.stringify(input), encoding: "utf8", env: process.env });
   return { code: result.status, stderr: result.stderr };
 }
 
 // The guard's verdict on every host: null when allowed, else the reason each
 // host gave the agent. All three must agree.
 async function verdicts(command, cwd = clone) {
-  const claude = runHook("guard.mjs", claudeInput(command, cwd));
-  const codex = runHook("guard.mjs", codexInput(command, cwd));
+  const claude = runHook("guard.mjs", claudeInput(command, cwd), ["--host", "claude"]);
+  const codex = runHook("guard.mjs", codexInput(command, cwd), ["--host", "codex"]);
   const { "tool.execute.before": before } = await opencodePlugin.server({ directory: cwd });
   let opencode = null;
   await before({ tool: "bash", sessionID: "ses_1", callID: "call_1" }, { args: { command, description: "test" } })
@@ -587,17 +588,234 @@ test("look-alikes are allowed: feature pushes, quoted text and other commands", 
     "npm run deploy-docs",
     "firebase deployments:list",
     "gh pr view 12 --json mergeable",
-    "grep -rn x --include=*.ts .",
   ]) await assertAllowed(command);
 });
 
-test("unquoted --include=* globs are blocked only when guard.blockUnquotedGlobs is on", async (t) => {
-  await writeFile(configFile, JSON.stringify({ guard: { blockUnquotedGlobs: true } }));
-  t.after(() => writeFile(configFile, baseConfig));
-  await assertBlocked("grep -rn x --include=*.ts .", /quote it: --include='\*\.ts'/);
-  await assertBlocked("rg x && grep -r y --exclude-dir=node_* .", /--exclude-dir='node_\*'/);
-  await assertAllowed("grep -rn x --include='*.ts' .");
-  await assertAllowed('grep -rn x "--include=*.ts" .');
+// The help refusals (decision 0021): a command that would fail or mislead in
+// a known way is refused with the corrected command, never rewritten. Each
+// host's verdict comes from its real entry: the installed hook command line
+// with its --host for Claude Code and Codex, the plugin for OpenCode.
+async function helpVerdict(host, command, { cwd = clone, tool, background } = {}) {
+  if (host === "opencode") {
+    const { "tool.execute.before": before } = await opencodePlugin.server({ directory: cwd });
+    return before({ tool: "bash", sessionID: "s", callID: "c" }, { args: { command } }).then(() => null, (error) => error.message);
+  }
+  const input = host === "claude" ? claudeInput(command, cwd) : codexInput(command, cwd);
+  if (tool) input.tool_name = tool;
+  if (background !== undefined) input.tool_input = { ...input.tool_input, run_in_background: background };
+  const result = runHook("guard.mjs", input, host ? ["--host", host] : []);
+  return result.code === 2 ? result.stderr : result.code === 0 ? null : `exit ${result.code}: ${result.stderr}`;
+}
+
+const ALL_HOSTS = ["claude", "codex", "opencode"];
+
+// The refusal on each host names the exact fix, and says it is help, not a
+// red line, so the agent runs the fix instead of reporting a block.
+async function assertHelped(command, fix, { hosts = ALL_HOSTS, ...options } = {}) {
+  for (const host of hosts) {
+    const message = await helpVerdict(host, command, options);
+    assert.ok(message, `${host} should refuse to help: ${command}`);
+    assert.ok(message.includes(fix), `${host}: ${command}\nexpected the fix: ${fix}\ngot: ${message}`);
+    assert.match(message, /refused this command to help, not over a red line: .*Run the corrected command instead\./s);
+    assert.doesNotMatch(message, /Do not retry it in pieces/);
+  }
+}
+
+async function assertNotHelped(command, { hosts = ALL_HOSTS, ...options } = {}) {
+  for (const host of hosts) assert.equal(await helpVerdict(host, command, options), null, `${host} should allow: ${command}`);
+}
+
+test("an unquoted --include, --exclude or find -name glob is refused with the whole corrected line; braces become one pattern each", async () => {
+  for (const [command, fixed] of [
+    ["grep -rn foo --include=*.ts --exclude-dir=node_modules .", "Run instead: grep -rn foo --include='*.ts' --exclude-dir=node_modules ."],
+    ["rg x --exclude=*.min.js && grep -r y --include=*.{ts,tsx} src", "Run instead: rg x --exclude='*.min.js' && grep -r y --include='*.ts' --include='*.tsx' src"],
+    ["grep -r y --include=src/*.{ts,tsx,} .", "Run instead: grep -r y --include='src/*.ts' --include='src/*.tsx' --include='src/*.' ."],
+    ["rg x && grep -r y --exclude-dir=node_* .", "Run instead: rg x && grep -r y --exclude-dir='node_*' ."],
+    ["find . -name *.ts -type f", "Run instead: find . -name '*.ts' -type f"],
+    ["find src -iname *.{ts,tsx}", "Run instead: find src \\( -iname '*.ts' -o -iname '*.tsx' \\)"],
+    ["find . -path */dist/*", "Run instead: find . -path '*/dist/*'"],
+    // A heredoc body or herestring is data: only the real word is replaced.
+    ["cat <<EOF > notes.md\ndon't stop\nEOF\ngrep -r x --include=*.ts .", "Run instead: cat <<EOF > notes.md\ndon't stop\nEOF\ngrep -r x --include='*.ts' ."],
+    ["grep x --include=*.ts <<<'--include=*.md'", "Run instead: grep x --include='*.ts' <<<'--include=*.md'"],
+  ]) await assertHelped(command, fixed);
+  await assertHelped("grep -r x --include=*.ts .", "unquoted --include=*.ts would be expanded by zsh before the command sees it, and zsh aborts the whole line when nothing matches; quote each pattern.");
+  // Where the line cannot be rebuilt for certain, the corrected word is given.
+  await assertHelped("cat <<EOF | grep --include=*.ts x\n--include=*.ts\nEOF", "Write --include='*.ts' for --include=*.ts");
+  await assertHelped("bash -c 'grep -r x --include=*.{ts,tsx} .'", "Write --include='*.ts' --include='*.tsx' for --include=*.{ts,tsx}");
+  for (const command of [
+    "grep -rn x --include='*.ts' .",
+    'grep -rn x "--include=*.ts" .',
+    "grep -r y --include=\\*.ts .",
+    "find . -name '*.ts'",
+    'echo "--include=*.ts"',
+    "ls *.ts",
+    "cat <<'EOF' > notes.md\ngrep -r x --include=*.ts .\nfind . -name *.ts\nEOF",
+  ]) await assertNotHelped(command);
+});
+
+test("tests, lint or verify piped into tail, head or grep without pipefail are refused with set -o pipefail added", async () => {
+  await assertHelped("npm test 2>&1 | tail -40", "npm test piped into tail reports tail's exit status, so a failing run reads as a pass; keep the checks' status with pipefail. Run instead: set -o pipefail; npm test 2>&1 | tail -40");
+  for (const command of [
+    "npm run test:unit | grep FAIL",
+    "npm run -s lint | head",
+    "npm run verify 2>&1 | tail -5",
+    "pnpm test | tail",
+    "pnpm run lint | head -20",
+    "yarn verify | tail",
+    "npx vitest run src/a.test.ts | tail -30",
+    "vitest run | grep -v PASS",
+    "jest --ci 2>&1 | tail",
+    "npx playwright test | tail",
+    "node --test scripts/hooks/hooks.test.mjs 2>&1 | grep -A5 'not ok'",
+    "pytest -x | tail -n 20",
+    "python -m pytest | tail",
+    "eslint . | head",
+    "tsc --noEmit | head -50",
+    "go test ./... | grep -v '^ok'",
+    "cargo test 2>&1 | tail",
+    "vfk --changed 2>&1 | tail -40",
+    "npx verifika --all | tee out.log | tail",
+    "cd app && npm test |& tail",
+  ]) await assertHelped(command, `Run instead: set -o pipefail; ${command}`);
+  // Both fixes in one line come back as one corrected line.
+  await assertHelped("npm test | grep -r x --include=*.ts", "Run instead: set -o pipefail; npm test | grep -r x --include='*.ts'");
+  await assertHelped("bash -c 'npm test | tail'", "Write set -o pipefail; at the start of the script that runs the pipe");
+  for (const command of [
+    "set -o pipefail; npm test 2>&1 | tail -40",
+    "set -o pipefail && vfk --changed | tail",
+    "bash -o pipefail -c 'npm test | tail'",
+    "npm test",
+    "npm test || echo failed",
+    "npm test > out.log; tail out.log",
+    "ls | head",
+    "git log --oneline | head",
+    "npm run build | tail",
+    "npm run test-results-report | jq .",
+    'echo "npm test | tail"',
+    "cat <<'EOF' > notes.md\nnpm run verify | tail\nEOF",
+  ]) await assertNotHelped(command);
+});
+
+test("a full verify run by hand inside an ibni worktree is refused in favour of ibni verify in the background", async () => {
+  for (const command of ["npm run verify", "npm run -s verify", "npm run --silent verify", "npx verifika --all", "verifika --all", "vfk --all", "npm run verify 2>&1 | tail"]) {
+    await assertHelped(command, "runs the full verify by hand inside an ibni worktree, without the workspace's ports, run slot or recorded result; run ibni verify --session abc123 with run_in_background: true and wait for its completion notification", { cwd: owned, hosts: ["claude"] });
+    await assertHelped(command, "run ibni verify --session abc123 in the background and wait for it to finish", { cwd: owned, hosts: ["codex", "opencode"] });
+  }
+  await assertHelped(`cd ${owned} && npm run verify`, "ibni verify --session abc123", { cwd: clone });
+  for (const command of ["vfk --changed", "vfk --check hooks", "npx verifika --changed", "node --test scripts/a.test.mjs", "npm test", "npm run verify:docs"]) {
+    await assertNotHelped(command, { cwd: owned });
+  }
+  // Outside an ibni worktree there is no ibni verify to run instead.
+  for (const command of ["npm run verify", "vfk --all"]) await assertNotHelped(command, { cwd: clone });
+});
+
+test("the session's own verifyCommand from ibni's metadata counts as a full verify", async (t) => {
+  const metadataFile = path.join(git(owned, "rev-parse", "--absolute-git-dir"), "implementation-workspace.json");
+  const original = await readFile(metadataFile, "utf8");
+  t.after(() => writeFile(metadataFile, original));
+  await writeFile(metadataFile, JSON.stringify({ ...JSON.parse(original), verifyCommand: "make check" }));
+  await assertHelped("make check", "ibni verify --session abc123", { cwd: owned });
+  await assertHelped("make check V=1", "ibni verify --session abc123", { cwd: owned });
+  await assertNotHelped("make build", { cwd: owned });
+});
+
+test("a foreground while or until loop that sleeps is refused on Claude Code's Bash, with the wait to run in the background", async () => {
+  const url = "npm run dev & until curl -sf http://localhost:5173 >/dev/null; do sleep 1; done";
+  await assertHelped(url, "a while or until loop that sleeps holds this Bash call in the foreground until the wait ends or the call times out; rerun this exact loop with run_in_background: true, and you get one completion notification when it exits (start a server it waits for in its own Bash call with run_in_background: true). The wait for the URL: until curl -sf http://localhost:5173 >/dev/null; do sleep 1; done, with run_in_background: true. Use the Monitor tool (command, description, timeout_ms) only for a stream of events, such as each matching log line: tail -F <log> | grep --line-buffered '<text>'; tail | grep -m1 can hang, so never use it for a one-shot wait", { hosts: ["claude"] });
+  await assertHelped("until grep -q 'ready in' /tmp/dev.log; do sleep 2; done", "The wait for the log: until grep -q 'ready in' /tmp/dev.log; do sleep 1; done, with run_in_background: true. Use the Monitor tool (command, description, timeout_ms) only for a stream of events, such as each matching log line: tail -F /tmp/dev.log | grep --line-buffered 'ready in';", { hosts: ["claude"] });
+  await assertHelped("while true; do\n  if curl -s localhost:3000; then break; fi\n  sleep 1\ndone", "The wait for a URL: until curl -sf <url> >/dev/null; do sleep 1; done; for a log line: until grep -q '<ready text>' <log>; do sleep 1; done", { hosts: ["claude"] });
+  // Monitor runs such loops by design, a background call does not block, and
+  // Codex and OpenCode have no Monitor or background call to offer instead.
+  await assertNotHelped(url, { hosts: ["claude"], tool: "Monitor" });
+  await assertNotHelped(url, { hosts: ["claude"], background: true });
+  await assertNotHelped(url, { hosts: ["codex", "opencode"] });
+  for (const command of [
+    "for i in 1 2 3; do sleep 1; done",
+    "sleep 5",
+    "while read -r line; do echo \"$line\"; done < list.txt",
+    "while sleep 1; do date; break; done",
+    "echo 'until curl -sf x; do sleep 1; done'",
+    "cat <<'EOF' > wait.sh\nwhile true; do sleep 1; done\nEOF",
+  ]) await assertNotHelped(command, { hosts: ["claude"] });
+});
+
+test("a host the guard cannot name gets only the host-neutral help refusals", async () => {
+  await assertNotHelped("until curl -sf http://localhost:5173; do sleep 1; done", { hosts: [null] });
+  await assertNotHelped("head -n 40 README.md", { hosts: [null], cwd: owned });
+  await assertHelped("grep -r x --include=*.ts .", "Run instead: grep -r x --include='*.ts' .", { hosts: [null] });
+});
+
+test("cat, head, tail or sed -n on a worktree file is refused on Claude Code and OpenCode with the read tool call to use instead", async () => {
+  const file = path.join(owned, "README.md");
+  await assertHelped("head -n 40 README.md", `head shows ${file} through the shell, which does not count as reading it, so a later edit of it is refused until it is read; use the Read tool with offset and limit: Read(${file}, offset: 1, limit: 40)`, { cwd: owned, hosts: ["claude"] });
+  await assertHelped("head -n 40 README.md", `use the read tool with offset and limit: read(filePath: ${file}, offset: 1, limit: 40)`, { cwd: owned, hosts: ["opencode"] });
+  for (const [command, call] of [
+    ["head README.md", `Read(${file}, offset: 1, limit: 10)`],
+    ["head -20 README.md", `Read(${file}, offset: 1, limit: 20)`],
+    ["sed -n '10,30p' README.md", `Read(${file}, offset: 10, limit: 21)`],
+    ["sed -n 5p README.md", `Read(${file}, offset: 5, limit: 1)`],
+    ["tail -n 25 README.md", `Read(${file}, offset: <near the end: the line count minus 25>, limit: 25)`],
+    ["tail -n +100 README.md", `Read(${file}, offset: 100)`],
+    ["cat README.md", `Read(${file})`],
+    ["cat -n README.md", `Read(${file})`],
+    [`cat ${file}`, `Read(${file})`],
+    ["cat README.md | head -n 5", `Read(${file}, offset: 1, limit: 5)`],
+    ["head -n 3 ../task/README.md", `Read(${file}, offset: 1, limit: 3)`],
+  ]) await assertHelped(command, call, { cwd: owned, hosts: ["claude"] });
+  await assertHelped(`cd ${owned} && cat README.md`, `Read(${file})`, { cwd: clone, hosts: ["claude"] });
+  // Codex has no read tool, and reads through the shell.
+  await assertNotHelped("sed -n '1,5p' README.md", { cwd: owned, hosts: ["codex"] });
+  await assertNotHelped("head -n 5 README.md", { cwd: owned, hosts: ["claude"], tool: "Monitor" });
+  for (const command of [
+    `cat ${path.join(clone, "README.md")}`,
+    "git log | head -n 5",
+    "tail -F app.log",
+    "tail -f README.md",
+    "tail --follow=name app.log",
+    "cat README.md > copy.md",
+    "head -n 5 README.md >/dev/null",
+    "cat README.md | jq .",
+    "grep -n x README.md",
+    "rg x README.md",
+    "sed -i 's/a/b/' README.md",
+    "sed 's/a/b/' README.md",
+    "cat \"$FILE\"",
+    "head -n 5 *.md",
+    "cat <<'EOF'\nhead -n 40 README.md\nEOF",
+    "echo 'cat README.md'",
+  ]) await assertNotHelped(command, { cwd: owned, hosts: ["claude", "opencode"] });
+  // Outside an ibni worktree there is nothing to protect an edit of.
+  await assertNotHelped("cat README.md", { cwd: clone, hosts: ["claude", "opencode"] });
+});
+
+test("a red line wins over a help refusal in the same line", async () => {
+  await assertBlocked("npm test | tail; git push --force origin feature", /force/);
+});
+
+test("the installed hook command tells the guard its host, and an install replaces the old mexxi-owned entry rather than adding a second", async () => {
+  const checkout = path.resolve(hooks, "../..");
+  const config = { paths: { checkout } };
+  const claude = claudeHooks(config).PreToolUse[0].hooks[0].command;
+  const codex = codexHooks(config).PreToolUse[0].hooks[0].command;
+  assert.equal(claude, `node ${path.join(checkout, "scripts/hooks/guard.mjs")} --host claude`);
+  assert.equal(codex, `node ${path.join(checkout, "scripts/hooks/guard.mjs")} --host codex`);
+  // The command line as the host runs it reaches the guard with that host.
+  const loop = "until curl -sf http://localhost:5173; do sleep 1; done";
+  const run = (line, input) => spawnSync("sh", ["-c", line], { input: JSON.stringify(input), encoding: "utf8", env: process.env });
+  assert.equal(run(claude, claudeInput(loop, clone)).status, 2);
+  assert.equal(run(codex, codexInput(loop, clone)).status, 0);
+
+  // An install from before --host recorded the bare command as its own.
+  const old = { PreToolUse: [{ matcher: "Bash|Monitor", hooks: [{ type: "command", command: `node ${path.join(checkout, "scripts/hooks/guard.mjs")}` }] }] };
+  const user = { matcher: "Bash", hooks: [{ type: "command", command: "my-hook" }] };
+  const desired = claudeHooks(config);
+  const merged = mergeOwnedHooks({ current: { PreToolUse: [user, ...old.PreToolUse] }, previous: old, desired, file: "settings.json" });
+  assert.deepEqual(merged.hooks.PreToolUse, [user, ...desired.PreToolUse]);
+  assert.deepEqual(merged.owned.PreToolUse, desired.PreToolUse);
+  assert.ok(merged.drift.some((line) => /PreToolUse hook Bash\|Monitor -> node \S+guard\.mjs was added by mexxi and is no longer wanted/.test(line)), merged.drift.join("\n"));
+  // The next install finds nothing to change.
+  const again = mergeOwnedHooks({ current: merged.hooks, previous: merged.owned, desired, file: "settings.json" });
+  assert.deepEqual([again.hooks, again.drift], [merged.hooks, []]);
 });
 
 test("the guard fails closed on input it cannot read, and ignores tools that run no shell", async () => {

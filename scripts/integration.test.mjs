@@ -1007,7 +1007,7 @@ test("settings.json gets only the keys mexxi owns, and --check notices a hand-re
     cleanupPeriodDays: 90,
     hooks: { ...mine.hooks, ...ours },
   });
-  assert.match(ours.PreToolUse[0].hooks[0].command, /^node .*scripts\/hooks\/guard\.mjs$/);
+  assert.match(ours.PreToolUse[0].hooks[0].command, /^node .*scripts\/hooks\/guard\.mjs --host claude$/);
   // The user's own copy of npm publish was there first, so it is not ours to remove.
   assert.deepEqual(JSON.parse(await readFile(stateFile, "utf8")), { deny: ["Bash(firebase deploy:*)"], env: { BASH_MAX_TIMEOUT_MS: "900000" }, keys: { cleanupPeriodDays: 90 }, hooks: ours });
   const written = await readFile(settingsFile, "utf8");
@@ -1023,7 +1023,7 @@ test("settings.json gets only the keys mexxi owns, and --check notices a hand-re
   const unhooked = await read();
   delete unhooked.hooks.PreToolUse;
   await writeFile(settingsFile, JSON.stringify(unhooked));
-  await assert.rejects(install({ ...options, check: true }), /PreToolUse hook Bash\|Monitor -> node .*guard\.mjs is missing/);
+  await assert.rejects(install({ ...options, check: true }), /PreToolUse hook Bash\|Monitor -> node .*guard\.mjs --host claude is missing/);
   await install(options);
   assert.deepEqual((await read()).hooks.PreToolUse, ours.PreToolUse);
 
@@ -1096,11 +1096,11 @@ test("Codex's hooks.json gets the guard and loop breaker beside hooks it does no
   await writeFile(hooksFile, JSON.stringify({ hooks: herdr }));
   const options = { home, checkout };
 
-  await assert.rejects(install({ ...options, check: true }), /hooks\.json: PreToolUse hook Bash -> node .*guard\.mjs is missing/);
+  await assert.rejects(install({ ...options, check: true }), /hooks\.json: PreToolUse hook Bash -> node .*guard\.mjs --host codex is missing/);
   assert.equal((await install(options)).codexHooksChanged, true);
   const { hooks } = JSON.parse(await readFile(hooksFile, "utf8"));
   assert.deepEqual(hooks.SessionStart, herdr.SessionStart);
-  assert.deepEqual(hooks.PreToolUse, [{ matcher: "Bash", hooks: [{ type: "command", command: `node ${path.join(checkout, "scripts/hooks/guard.mjs")}` }] }]);
+  assert.deepEqual(hooks.PreToolUse, [{ matcher: "Bash", hooks: [{ type: "command", command: `node ${path.join(checkout, "scripts/hooks/guard.mjs")} --host codex` }] }]);
   assert.match(hooks.PostToolUse[0].hooks[0].command, /loop-breaker\.mjs$/);
   assert.equal((await install(options)).codexHooksChanged, false);
   await install({ ...options, check: true });
@@ -1113,7 +1113,7 @@ test("Codex's hooks.json gets the guard and loop breaker beside hooks it does no
   // Turning Codex off takes back only the hooks mexxi added (--check reports
   // them until then); the user's own stay. Turning it back on restores them.
   await configure(home, { hosts: { codex: false } });
-  await assert.rejects(install({ ...options, check: true }), /PreToolUse hook Bash -> node .*guard\.mjs was added by mexxi and is no longer wanted/);
+  await assert.rejects(install({ ...options, check: true }), /PreToolUse hook Bash -> node .*guard\.mjs --host codex was added by mexxi and is no longer wanted/);
   await install(options);
   assert.deepEqual(JSON.parse(await readFile(hooksFile, "utf8")), { hooks: herdr });
   await install({ ...options, check: true });
@@ -1136,7 +1136,7 @@ test("turning Claude Code off takes back what mexxi added to settings.json and k
   assert.notDeepEqual(JSON.parse(await readFile(settingsFile, "utf8")), mine);
 
   await configure(home, { hosts: { claude: false } });
-  await assert.rejects(install({ ...options, check: true }), /deny entry Bash\(npm publish:\*\) was added by mexxi[\s\S]*env\.BASH_MAX_TIMEOUT_MS was added by mexxi[\s\S]*PreToolUse hook .*guard\.mjs was added by mexxi/);
+  await assert.rejects(install({ ...options, check: true }), /deny entry Bash\(npm publish:\*\) was added by mexxi[\s\S]*env\.BASH_MAX_TIMEOUT_MS was added by mexxi[\s\S]*PreToolUse hook .*guard\.mjs --host claude was added by mexxi/);
   await install(options);
   assert.deepEqual(JSON.parse(await readFile(settingsFile, "utf8")), mine);
   await install({ ...options, check: true });
@@ -1176,7 +1176,7 @@ test("turning a host off removes its links and mods, and with every host off onl
   const plugins = async () => JSON.parse(await readFile(path.join(home, ".claude-stub.json"), "utf8")).plugins;
   await install(options);
   assert.ok((await hostLinks(".claude")).length > 0);
-  assert.deepEqual(await plugins(), ["run-pane@mexxi", "command-fixer@mexxi"]);
+  assert.deepEqual(await plugins(), ["run-pane@mexxi"]);
 
   await configure(home, { hosts: { claude: false } });
   await install(options);
@@ -1209,10 +1209,10 @@ test("the mods are installed through the claude CLI from this clone, and --check
   const calls = async () => (await readFile(log, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
   const options = { home, checkout };
 
-  await assert.rejects(install({ ...options, check: true }), /mod run-pane@mexxi is not installed[\s\S]*mod command-fixer@mexxi is not installed/);
+  await assert.rejects(install({ ...options, check: true }), /mod run-pane@mexxi is not installed/);
   await install(options);
   assert.deepEqual((await calls()).filter((call) => !call.startsWith("plugin list")), [
-    `plugin marketplace add ${path.resolve(checkout)} --json`, "plugin install run-pane@mexxi --json", "plugin install command-fixer@mexxi --json",
+    `plugin marketplace add ${path.resolve(checkout)} --json`, "plugin install run-pane@mexxi --json",
   ]);
   // Already installed and read from this clone: nothing more is run.
   const before = (await calls()).length;
@@ -1231,10 +1231,22 @@ test("the mods are installed through the claude CLI from this clone, and --check
   await install({ ...options, check: true });
 
   // A mod dropped from config.json is uninstalled.
-  await configure(home, { mods: ["run-pane"] });
+  await configure(home, { mods: [] });
+  await assert.rejects(install({ ...options, check: true }), /run-pane@mexxi is installed but not in config\.json's mods/);
+  await install(options);
+  assert.equal((await calls()).at(-1), "plugin uninstall run-pane@mexxi --json");
+  await install({ ...options, check: true });
+
+  // A retired mod (command-fixer, decision 0021) left installed from an older
+  // clone is uninstalled, though its folder is gone from the marketplace.
+  await configure(home);
+  const stubState = path.join(home, ".claude-stub.json");
+  const state = JSON.parse(await readFile(stubState, "utf8"));
+  await writeFile(stubState, JSON.stringify({ ...state, plugins: [...state.plugins, "command-fixer@mexxi"] }));
   await assert.rejects(install({ ...options, check: true }), /command-fixer@mexxi is installed but not in config\.json's mods/);
   await install(options);
-  assert.equal((await calls()).at(-1), "plugin uninstall command-fixer@mexxi --json");
+  assert.ok((await calls()).includes("plugin uninstall command-fixer@mexxi --json"));
+  assert.deepEqual(JSON.parse(await readFile(stubState, "utf8")).plugins, ["run-pane@mexxi"]);
   await install({ ...options, check: true });
 });
 
@@ -1281,7 +1293,7 @@ test("a failing mod step leaves the rest installed, reports the failure and stay
   assert.equal(result.mods, "failed");
   assert.equal(await readlink(path.join(home, ".claude/CLAUDE.md")), path.join(home, ".local/share/mexxi/generated/claude/CLAUDE.md"));
   assert.ok(JSON.parse(await readFile(path.join(home, ".claude/settings.json"), "utf8")).hooks);
-  await assert.rejects(install({ ...options, check: true }), /setup incomplete:\nclaude: mod run-pane@mexxi is not installed\nclaude: mod command-fixer@mexxi is not installed$/);
+  await assert.rejects(install({ ...options, check: true }), /setup incomplete:\nclaude: mod run-pane@mexxi is not installed$/);
 
   // With the cause fixed, a rerun installs the mods and --check is green.
   assert.equal((await install(options)).modsFailed, undefined);

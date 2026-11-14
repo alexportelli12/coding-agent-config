@@ -63,7 +63,6 @@
       "git push -f"
     ],
     "protectedBranches": [],
-    "blockUnquotedGlobs": false,
     "repeatedFailureLimit": 3
   },
   "claude": {
@@ -116,7 +115,6 @@
     "transcriptRetentionDays": 90
   },
   "mods": [
-    "run-pane",
-    "command-fixer"
+    "run-pane"
   ]
 }

@@ -90,6 +90,7 @@ its architecture, and follow them:
 - [0017 Each workspace gets a block of ports, and ibni hands it to setup and verify](docs/decisions/0017-workspace-port-blocks.md)
 - [0018 Setup and verify wait for one of a few machine-wide slots](docs/decisions/0018-machine-wide-run-slots.md)
 - [0019 Setup and verify run in a systemd scope where one can start](docs/decisions/0019-runs-in-a-systemd-scope.md)
+- [0021 Hooks refuse with the fix; they never rewrite](docs/decisions/0021-hooks-refuse-with-the-fix.md)
 - [0022 Retire Jev triage and cross-family review](docs/decisions/0022-retire-jev-and-cross-family-review.md)
 - [0023 Runs decide reversible choices and record them](docs/decisions/0023-decide-and-record.md)
 

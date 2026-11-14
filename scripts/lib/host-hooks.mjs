@@ -12,17 +12,20 @@ function shellQuote(value) {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function command(checkout, script) {
-  return { type: "command", command: `node ${shellQuote(path.join(checkout, "scripts/hooks", script))}` };
+function command(checkout, script, args = []) {
+  return { type: "command", command: ["node", path.join(checkout, "scripts/hooks", script), ...args].map(shellQuote).join(" ") };
 }
 
 // Claude Code: PreToolUse covers Bash and Monitor (a monitor's script is a
 // shell command). A failed command raises PostToolUseFailure, a successful
-// one or an edit PostToolUse, so the loop breaker listens to both.
+// one or an edit PostToolUse, so the loop breaker listens to both. The guard
+// is told its host, since some of its help refusals depend on the host's
+// tools. A changed command string is a new group, so an install replaces the
+// old mexxi-owned one rather than keeping both.
 export function claudeHooks(config) {
   const { checkout } = config.paths;
   return {
-    PreToolUse: [{ matcher: "Bash|Monitor", hooks: [command(checkout, "guard.mjs")] }],
+    PreToolUse: [{ matcher: "Bash|Monitor", hooks: [command(checkout, "guard.mjs", ["--host", "claude"])] }],
     PostToolUse: [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit", hooks: [command(checkout, "loop-breaker.mjs")] }],
     PostToolUseFailure: [{ matcher: "Bash", hooks: [command(checkout, "loop-breaker.mjs")] }],
   };
@@ -33,7 +36,7 @@ export function claudeHooks(config) {
 export function codexHooks(config) {
   const { checkout } = config.paths;
   return {
-    PreToolUse: [{ matcher: "Bash", hooks: [command(checkout, "guard.mjs")] }],
+    PreToolUse: [{ matcher: "Bash", hooks: [command(checkout, "guard.mjs", ["--host", "codex"])] }],
     PostToolUse: [{ matcher: "Bash|apply_patch", hooks: [command(checkout, "loop-breaker.mjs")] }],
   };
 }

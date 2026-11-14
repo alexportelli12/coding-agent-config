@@ -142,10 +142,26 @@ function withoutRetiredReviewKeys(value, retired) {
   return { ...result, models };
 }
 
+// The command fixer and its glob switch, retired by decision 0021: the guard now refuses unquoted globs on every
+// host. Same shim and removal date as the review keys above.
+function withoutRetiredCommandFixerKeys(value, retired) {
+  if (!isObject(value)) return value;
+  let result = value;
+  if (isObject(result.guard) && "blockUnquotedGlobs" in result.guard) {
+    retired.push("guard.blockUnquotedGlobs");
+    result = { ...result, guard: omit(result.guard, ["blockUnquotedGlobs"]) };
+  }
+  if (Array.isArray(result.mods) && result.mods.includes("command-fixer")) {
+    retired.push('mods: "command-fixer"');
+    result = { ...result, mods: result.mods.filter((mod) => mod !== "command-fixer") };
+  }
+  return result;
+}
+
 /** The retired keys `value` still sets, as paths to delete, and `value` without them. */
 export function withoutRetiredKeys(value) {
   const retired = [];
-  const cleaned = withoutRetiredReviewKeys(withoutRetiredSegwiKeys(value, retired), retired);
+  const cleaned = withoutRetiredCommandFixerKeys(withoutRetiredReviewKeys(withoutRetiredSegwiKeys(value, retired), retired), retired);
   return { value: retired.length ? cleaned : value, retired };
 }
 

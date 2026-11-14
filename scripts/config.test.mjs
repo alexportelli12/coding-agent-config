@@ -36,7 +36,7 @@ test("a missing config.json means every default, with ~ expanded", async (t) => 
   assert.deepEqual(config.guard.deny, ["npm publish", "gh pr merge", "gh release create", "git push --force", "git push -f"]);
   assert.equal(config.workflow.branchPrefix, "agent/");
   assert.deepEqual(config.workflow.viewports, [1440, 768, 390]);
-  assert.deepEqual(config.mods, ["run-pane", "command-fixer"]);
+  assert.deepEqual(config.mods, ["run-pane"]);
 });
 
 test("a user sets only what differs: objects merge, arrays and null replace", async () => {
@@ -79,7 +79,7 @@ test("validation names every invalid key", async () => {
       /config\.workflow\.viewports\[0\]: below 200/,
       /config\.workflow\.ports\.last: above 65535/,
       /config\.workflow\.ports\.blockSize: expected integer, got number/,
-      /config\.mods\[0\]: expected one of run-pane, command-fixer/,
+      /config\.mods\[0\]: expected one of run-pane$/m,
       /config\.review\.tool: expected one of ocr, none/,
       /config\.browser\.executablePath: does not match/,
       /config\.extra: unknown key/,
@@ -131,4 +131,21 @@ test("forge.hosts maps any hostname to github or gitlab, and nothing else", asyn
     return true;
   });
   await assert.rejects(resolveConfig({ forge: { hosts: { "git.example.com": 1 } } }, { home }), /config\.forge\.hosts\.git\.example\.com: expected string, got integer/);
+});
+
+// Break caught: an upgrade that makes a config with retired keys (decisions 0021
+// and 0022) fail to load, or drops them without naming each one to delete.
+test("a config with keys retired by 0021 and 0022 still loads, ignores them and names each one", async (t) => {
+  const file = await temporaryFile(t, JSON.stringify({
+    jev: { enabled: true },
+    models: { claude: { reviewer: "opus", crossFamilyReviewer: "gpt" }, opencode: { crossFamilyReviewer: "x/y" } },
+    guard: { blockUnquotedGlobs: true, deny: ["npm publish"] },
+    mods: ["run-pane", "command-fixer"],
+  }));
+  const { config, retired } = await loadConfig({ file, home });
+  assert.deepEqual(retired.sort(), ["guard.blockUnquotedGlobs", "jev", "models.claude.crossFamilyReviewer", "models.opencode.crossFamilyReviewer", 'mods: "command-fixer"'].sort());
+  assert.equal(config.models.claude.reviewer, "opus");
+  assert.deepEqual(config.guard.deny, ["npm publish"]);
+  assert.deepEqual(config.mods, ["run-pane"]);
+  assert.equal("jev" in config, false);
 });

@@ -20,7 +20,7 @@
     },
     "hooks": {
       "command": "node --test scripts/hooks/hooks.test.mjs",
-      "paths": ["scripts/hooks/**", "opencode/plugins/**", "scripts/lib/config.mjs", "scripts/ibni/lib/metadata.mjs", "config.schema.json"]
+      "paths": ["scripts/hooks/**", "opencode/plugins/**", "scripts/lib/config.mjs", "scripts/lib/host-hooks.mjs", "scripts/ibni/lib/metadata.mjs", "config.schema.json"]
     },
     "mods": {
       "command": "node scripts/check-mods.mjs",

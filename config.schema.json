@@ -161,7 +161,7 @@
       }
     },
     "guard": {
-      "description": "What the shared guard hook blocks on every host.",
+      "description": "What the shared guard hook refuses on every host, beside the command fixes it names (decision 0021).",
       "why": "A stuck agent occasionally runs something destructive, so a hook backs up the rules by stopping the commands you list.",
       "type": "object",
       "additionalProperties": false,
@@ -184,11 +184,6 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "default": []
-        },
-        "blockUnquotedGlobs": {
-          "description": "Refuse unquoted --include=* and --exclude=* globs, which zsh expands (and aborts on when nothing matches) unless setopt no_nomatch reaches the agent's shell. Leave off once a fresh Claude Code session shows `grep -rn x --include=*.ts .` searching; turn on if it fails with 'no matches found'.",
-          "type": "boolean",
-          "default": false
         },
         "repeatedFailureLimit": {
           "description": "How many times the same shell command may fail in one agent session, with no file edited in between, before the loop breaker tells the agent to stop retrying and re-diagnose.",
@@ -345,11 +340,11 @@
     },
     "mods": {
       "description": "Which Claude Code mods the installer installs.",
-      "why": "Claude Code can load two optional extras: the run pane, which shows where a run stands beside the chat, and the command fixer, which repairs shell commands that would otherwise fail.",
+      "why": "Claude Code can load an optional extra: the run pane, which shows where a run stands beside the chat.",
       "scope": "Claude Code only",
       "type": "array",
-      "items": { "type": "string", "enum": ["run-pane", "command-fixer"] },
-      "default": ["run-pane", "command-fixer"]
+      "items": { "type": "string", "enum": ["run-pane"] },
+      "default": ["run-pane"]
     }
   }
 }
